@@ -1,11 +1,10 @@
-# Reselling Scaler
+# Resell Scaler
 
-Tool zum Verwalten und Skalieren eines Reselling-Business: Lager und Verkäufe, Dashboard, Gewinnrechner, Skalierungsplan und Checkliste.
+Handy-App für iOS und Android zum Verwalten und Skalieren eines Reselling-Business:
+Lager und Verkäufe, Kennzahlen, Gewinnrechner, Skalierungsplan und Checkliste.
+Jede Person hat ein eigenes Konto mit Login, die Daten liegen in Supabase.
 
-| Version | Datei | Speicherung |
-|---|---|---|
-| **Website mit Konto-Login** | `docs/` | Supabase (E-Mail und Passwort, pro Konto privat) |
-| Offline-Datei | `reselling-scaler.html` | nur im eigenen Browser |
-| claude.ai-Version | `reselling-scaler-online.html` | claude.ai-Konto |
+- App-Quellcode: [`app/`](app/)
+- Einrichtung, Testen auf dem Handy und Veröffentlichung: [`app/ANLEITUNG.md`](app/ANLEITUNG.md)
 
-Einrichtung der Website: siehe [`docs/ANLEITUNG.md`](docs/ANLEITUNG.md).
+Frühere Einzeldatei-Versionen (ohne App): `reselling-scaler.html` (offline) und `reselling-scaler-online.html` (claude.ai).
