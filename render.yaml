@@ -1,0 +1,17 @@
+# Render-Blueprint: https://render.com → New → Blueprint → dieses Repository auswählen.
+services:
+  - type: web
+    name: tischbuchung
+    runtime: docker
+    region: frankfurt
+    plan: starter            # dauerhafter Speicher (disk) erfordert einen kostenpflichtigen Plan
+    healthCheckPath: /healthz
+    disk:
+      name: daten
+      mountPath: /data       # hier liegt die SQLite-Datenbank
+      sizeGB: 1
+    envVars:
+      - key: ADMIN_KEY
+        generateValue: true  # wird von Render erzeugt; im Dashboard unter "Environment" ablesbar
+      - key: TRUST_PROXY_HOPS
+        value: "1"           # Anzahl der Proxys vor der App (für das Rate-Limit pro Gast)

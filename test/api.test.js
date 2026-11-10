@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { seedDemo } from '../src/seed.js';
-import { createHttpServer } from '../src/server.js';
+import { clientIp, createHttpServer } from '../src/server.js';
 
 // Feste "Jetzt"-Zeit: Dienstag, 10.11.2026, 10:00 Uhr Berlin.
 const NOW = new Date('2026-11-10T09:00:00Z');
@@ -124,4 +124,17 @@ test('statische Dateien und Pfad-Traversal', async () => {
   assert.equal(widget.headers.get('access-control-allow-origin'), '*');
   const trav = await fetch(`${base}/..%2Fsrc%2Fdb.js`);
   assert.equal(trav.status, 404);
+});
+
+test('Zustandsprüfung', async () => {
+  assert.deepEqual((await call('GET', '/healthz')).body, { ok: true });
+});
+
+test('Client-IP hinter Reverse-Proxy', () => {
+  const req = (xff) => ({ headers: xff ? { 'x-forwarded-for': xff } : {}, socket: { remoteAddress: '10.0.0.1' } });
+  assert.equal(clientIp(req('1.1.1.1, 2.2.2.2')), '10.0.0.1'); // ohne Proxy-Vertrauen: Header ignorieren
+  assert.equal(clientIp(req('gefälscht, 2.2.2.2'), 1), '2.2.2.2');
+  assert.equal(clientIp(req('1.1.1.1, 2.2.2.2'), 2), '1.1.1.1');
+  assert.equal(clientIp(req(), 1), '10.0.0.1');
+  assert.equal(clientIp(req('2.2.2.2'), 3), '10.0.0.1');
 });

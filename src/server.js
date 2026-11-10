@@ -50,7 +50,25 @@ function rateLimiter({ max, windowMs }) {
   };
 }
 
-export function createApp(db, { now = () => new Date(), bookingRateLimit = { max: 10, windowMs: 10 * 60_000 } } = {}) {
+/**
+ * IP des Gastes. Hinter einem Reverse-Proxy (Hosting-Plattform) ist die Socket-Adresse die des
+ * Proxys; dann zählt der Eintrag in X-Forwarded-For, den der äußerste vertrauenswürdige Proxy
+ * angehängt hat (`trustProxyHops` von rechts). Einträge weiter links kann der Client fälschen.
+ */
+export function clientIp(req, trustProxyHops = 0) {
+  if (trustProxyHops > 0) {
+    const list = String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const ip = list[list.length - trustProxyHops];
+    if (ip) return ip;
+  }
+  return req.socket.remoteAddress;
+}
+
+export function createApp(db, {
+  now = () => new Date(),
+  bookingRateLimit = { max: 10, windowMs: 10 * 60_000 },
+  trustProxyHops = 0,
+} = {}) {
   const allowBooking = rateLimiter(bookingRateLimit);
 
   const q = {
@@ -120,6 +138,9 @@ export function createApp(db, { now = () => new Date(), bookingRateLimit = { max
 
   // --- Routen -----------------------------------------------------------------
   const routes = [
+    // Für die Zustandsprüfung der Hosting-Plattform.
+    ['GET', /^\/healthz$/, () => { db.prepare('SELECT 1').get(); return { ok: true }; }],
+
     ['GET', /^\/api\/restaurants\/([\w-]+)$/, ({ params: [slug] }) => {
       const r = getRestaurant(slug);
       const today = nowInTimeZone(r.timezone, now()).date;
@@ -139,7 +160,7 @@ export function createApp(db, { now = () => new Date(), bookingRateLimit = { max
 
     ['POST', /^\/api\/restaurants\/([\w-]+)\/reservations$/, async ({ params: [slug], req }) => {
       const r = getRestaurant(slug);
-      if (!allowBooking(req.socket.remoteAddress)) throw new HttpError(429, 'Zu viele Anfragen, bitte später erneut versuchen');
+      if (!allowBooking(clientIp(req, trustProxyHops))) throw new HttpError(429, 'Zu viele Anfragen, bitte später erneut versuchen');
       const body = await readJson(req);
       if (body.website) throw new HttpError(400, 'Ungültige Anfrage'); // Honeypot-Feld gegen Bots
 
