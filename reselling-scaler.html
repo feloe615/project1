@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reselling Scaler</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --text:#1b1f24; --muted:#5f6b7a; --line:#e3e7ec;
+  --accent:#2f6fed; --accent-soft:#e8f0fe; --good:#1a8a4a; --bad:#c23b3b; --warn:#b7791f;
+  --radius:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111418; --card:#1a1e24; --text:#e7ebf0; --muted:#98a3b1; --line:#2b313a;
+    --accent:#6b9bff; --accent-soft:#1f2b44; --good:#4cc47e; --bad:#ff7676; --warn:#e6b450;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111418; --card:#1a1e24; --text:#e7ebf0; --muted:#98a3b1; --line:#2b313a;
+  --accent:#6b9bff; --accent-soft:#1f2b44; --good:#4cc47e; --bad:#ff7676; --warn:#e6b450;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:20px 16px 0;max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-size:1.5rem}
+header p{margin:4px 0 0;color:var(--muted)}
+nav{max-width:1100px;margin:16px auto 0;padding:0 16px;display:flex;gap:6px;overflow-x:auto}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 14px;border-radius:999px;cursor:pointer;white-space:nowrap;font:inherit}
+nav button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:1100px;margin:0 auto;padding:16px}
+section.tab{display:none}
+section.tab.active{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+.card h2{margin:0 0 12px;font-size:1.1rem}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.kpi .l{color:var(--muted);font-size:.8rem}
+.kpi .v{font-size:1.35rem;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+.form{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:var(--muted)}
+input,select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.btn{font:inherit;border:0;background:var(--accent);color:#fff;padding:9px 16px;border-radius:8px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+.btn.small{padding:4px 10px;font-size:.82rem}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.75rem;background:var(--accent-soft);color:var(--accent)}
+.pill.sold{background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good)}
+.pill.old{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.muted{color:var(--muted)}
+.result{background:var(--accent-soft);border-radius:10px;padding:14px;margin-top:12px}
+.result b{font-variant-numeric:tabular-nums}
+.chart{width:100%;height:auto;display:block;margin-top:8px}
+.checklist label{flex-direction:row;align-items:flex-start;gap:10px;color:var(--text);font-size:.92rem;padding:8px 0;border-bottom:1px solid var(--line)}
+.checklist input{width:auto;margin-top:4px}
+.checklist h3{margin:16px 0 4px;font-size:.95rem}
+.progress{height:8px;background:var(--line);border-radius:99px;overflow:hidden}
+.progress>div{height:100%;background:var(--good);width:0}
+.two{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.empty{color:var(--muted);text-align:center;padding:20px}
+.bar-row{display:grid;grid-template-columns:110px 1fr 90px;gap:8px;align-items:center;font-size:.85rem;margin:6px 0}
+.bar{height:14px;background:var(--accent);border-radius:4px}
+.bar.neg{background:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Reselling Scaler</h1>
+    <p>Lager, Gewinne und Wachstumsplan für dein Reselling-Business – alles lokal in deinem Browser gespeichert.</p>
+  </div>
+  <button class="btn ghost small" id="themeBtn" title="Hell/Dunkel umschalten">◐ Theme</button>
+</header>
+
+<nav id="tabs">
+  <button data-tab="dash" class="active">Dashboard</button>
+  <button data-tab="inv">Lager &amp; Verkäufe</button>
+  <button data-tab="calc">Gewinnrechner</button>
+  <button data-tab="plan">Skalierungsplan</button>
+  <button data-tab="check">Checkliste</button>
+  <button data-tab="settings">Einstellungen</button>
+</nav>
+
+<main>
+<!-- DASHBOARD -->
+<section class="tab active" id="dash">
+  <div class="grid kpis" id="kpis"></div>
+  <div class="grid two" style="margin-top:16px">
+    <div class="card"><h2>Gewinn pro Monat</h2><div id="monthChart"></div></div>
+    <div class="card"><h2>Gewinn nach Plattform</h2><div id="platformChart"></div></div>
+  </div>
+  <div class="grid two">
+    <div class="card"><h2>Top-Kategorien (Ø Gewinn je Verkauf)</h2><div id="catChart"></div></div>
+    <div class="card"><h2>Ladenhüter (&gt; <span id="oldDaysLbl">60</span> Tage im Lager)</h2><div id="oldList"></div></div>
+  </div>
+</section>
+
+<!-- INVENTORY -->
+<section class="tab" id="inv">
+  <div class="card">
+    <h2 id="formTitle">Artikel hinzufügen</h2>
+    <form id="itemForm" class="grid form">
+      <input type="hidden" id="f_id">
+      <label>Artikel<input id="f_name" required placeholder="z. B. Nike Air Max 90"></label>
+      <label>Kategorie<input id="f_cat" list="catList" placeholder="z. B. Sneaker"></label>
+      <label>Einkaufsquelle<input id="f_src" list="srcList" placeholder="z. B. Flohmarkt"></label>
+      <label>Einkaufspreis (€)<input id="f_buy" type="number" step="0.01" min="0" required></label>
+      <label>Einkaufsdatum<input id="f_buyDate" type="date" required></label>
+      <label>Plattform<select id="f_plat"></select></label>
+      <label>Verkaufspreis (€)<input id="f_sell" type="number" step="0.01" min="0" placeholder="leer = noch im Lager"></label>
+      <label>Verkaufsdatum<input id="f_sellDate" type="date"></label>
+      <label>Versand/Verpackung (€)<input id="f_ship" type="number" step="0.01" min="0" value="0"></label>
+      <div class="row" style="align-self:end">
+        <button class="btn" type="submit">Speichern</button>
+        <button class="btn ghost" type="button" id="cancelEdit" hidden>Abbrechen</button>
+      </div>
+    </form>
+    <datalist id="catList"></datalist><datalist id="srcList"></datalist>
+  </div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <div class="row">
+        <select id="filterStatus" style="width:auto">
+          <option value="all">Alle</option><option value="stock">Im Lager</option><option value="sold">Verkauft</option>
+        </select>
+        <input id="search" placeholder="Suchen…" style="width:180px">
+      </div>
+      <div class="row">
+        <button class="btn ghost small" id="exportCsv">CSV exportieren</button>
+        <label class="btn ghost small" style="flex-direction:row;color:var(--text);font-size:.82rem">CSV importieren<input type="file" id="importCsv" accept=".csv" hidden></label>
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Artikel</th><th>Kategorie</th><th>Plattform</th><th class="num">EK</th><th class="num">VK</th><th class="num">Gebühren</th><th class="num">Gewinn</th><th class="num">ROI</th><th>Status</th><th></th></tr></thead>
+      <tbody id="itemRows"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- CALCULATOR -->
+<section class="tab" id="calc">
+  <div class="card">
+    <h2>Lohnt sich der Einkauf?</h2>
+    <p class="muted" style="margin-top:0">Schnell vor Ort prüfen: Was bleibt nach Gebühren und Versand übrig – und was darfst du maximal zahlen?</p>
+    <div class="grid form">
+      <label>Erwarteter Verkaufspreis (€)<input id="c_sell" type="number" step="0.01" value="60"></label>
+      <label>Einkaufspreis (€)<input id="c_buy" type="number" step="0.01" value="15"></label>
+      <label>Versand/Verpackung (€)<input id="c_ship" type="number" step="0.01" value="0"></label>
+      <label>Ziel-ROI (%)<input id="c_roi" type="number" step="1" value="100"></label>
+    </div>
+    <div class="table-wrap" style="margin-top:14px"><table>
+      <thead><tr><th>Plattform</th><th class="num">Gebühren</th><th class="num">Gewinn</th><th class="num">Marge</th><th class="num">ROI</th><th class="num">Max. EK für Ziel-ROI</th></tr></thead>
+      <tbody id="calcRows"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- PLAN -->
+<section class="tab" id="plan">
+  <div class="card">
+    <h2>Ziel rückwärts rechnen</h2>
+    <p class="muted" style="margin-top:0">Werte werden aus deinen Verkäufen vorbefüllt (falls vorhanden) – passe sie gern an.</p>
+    <div class="grid form">
+      <label>Ziel-Gewinn pro Monat (€)<input id="p_goal" type="number" value="2000"></label>
+      <label>Ø Gewinn je Verkauf (€)<input id="p_avgProfit" type="number" step="0.01" value="20"></label>
+      <label>Ø Einkaufspreis (€)<input id="p_avgBuy" type="number" step="0.01" value="15"></label>
+      <label>Ø Tage bis Verkauf<input id="p_days" type="number" value="30"></label>
+      <label>Minuten pro Artikel (Einkauf, Fotos, Listing, Versand)<input id="p_min" type="number" value="25"></label>
+      <label>Verkaufsquote (% der gelisteten Artikel)<input id="p_sellThrough" type="number" value="80"></label>
+    </div>
+    <div class="result" id="goalResult"></div>
+  </div>
+  <div class="card">
+    <h2>Wachstumssimulation (Gewinn reinvestieren)</h2>
+    <div class="grid form">
+      <label>Startkapital (€)<input id="s_cap" type="number" value="500"></label>
+      <label>ROI je Kapitalumschlag (%)<input id="s_roi" type="number" value="80"></label>
+      <label>Umschläge pro Monat<input id="s_turns" type="number" step="0.1" value="1"></label>
+      <label>Reinvestitionsquote (%)<input id="s_reinv" type="number" value="60"></label>
+      <label>Max. Kapital (Zeit-/Lagerlimit, €)<input id="s_max" type="number" value="5000"></label>
+      <label>Monate<input id="s_months" type="number" value="12" min="1" max="36"></label>
+    </div>
+    <div id="simChart"></div>
+    <div class="result" id="simResult"></div>
+  </div>
+</section>
+
+<!-- CHECKLIST -->
+<section class="tab" id="check">
+  <div class="card">
+    <h2>Fahrplan zum Skalieren</h2>
+    <div class="row" style="gap:12px"><div class="progress" style="flex:1"><div id="progBar"></div></div><span id="progTxt" class="muted"></span></div>
+    <div class="checklist" id="checklist"></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="tab" id="settings">
+  <div class="card">
+    <h2>Plattform-Gebühren</h2>
+    <p class="muted" style="margin-top:0">Beispielwerte – Gebühren ändern sich und hängen davon ab, ob du privat oder gewerblich verkaufst. Bitte mit den aktuellen Konditionen deiner Plattformen abgleichen.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Plattform</th><th class="num">% vom VK</th><th class="num">Fix je Verkauf (€)</th><th></th></tr></thead>
+      <tbody id="platRows"></tbody>
+    </table></div>
+    <button class="btn ghost small" id="addPlat" style="margin-top:10px">+ Plattform</button>
+  </div>
+  <div class="card">
+    <h2>Allgemein</h2>
+    <div class="grid form">
+      <label>Ladenhüter ab (Tagen)<input id="set_old" type="number" value="60"></label>
+      <label>Fixkosten pro Monat (€, z. B. Software, Material)<input id="set_fixed" type="number" step="0.01" value="0"></label>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Daten</h2>
+    <div class="row">
+      <button class="btn ghost small" id="backup">Backup (JSON) herunterladen</button>
+      <label class="btn ghost small" style="flex-direction:row;color:var(--text);font-size:.82rem">Backup laden<input type="file" id="restore" accept=".json" hidden></label>
+      <button class="btn ghost small" id="demo">Beispieldaten laden</button>
+      <button class="btn ghost small" id="wipe" style="color:var(--bad)">Alle Daten löschen</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+(function(){
+const KEY='resellingScaler.v1';
+const DEFAULT={
+  items:[],
+  platforms:[
+    {name:'eBay (gewerblich)',pct:11,fix:0.35},
+    {name:'eBay (privat)',pct:0,fix:0},
+    {name:'Vinted',pct:0,fix:0},
+    {name:'Kleinanzeigen',pct:0,fix:0},
+    {name:'Etsy',pct:10.5,fix:0.55},
+    {name:'Eigener Shop',pct:3,fix:0.25}
+  ],
+  settings:{oldDays:60,fixed:0},
+  checks:{}
+};
+let S;
+function load(){try{const r=localStorage.getItem(KEY);S=r?Object.assign(structuredClone(DEFAULT),JSON.parse(r)):structuredClone(DEFAULT);}catch(e){S=structuredClone(DEFAULT);}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+load();
+
+const $=id=>document.getElementById(id);
+const eur=n=>(isFinite(n)?n:0).toLocaleString('de-DE',{style:'currency',currency:'EUR'});
+const pct=n=>isFinite(n)?n.toLocaleString('de-DE',{maximumFractionDigits:0})+' %':'–';
+const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=()=>new Date().toISOString().slice(0,10);
+const days=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
+
+function plat(name){return S.platforms.find(p=>p.name===name)||{pct:0,fix:0}}
+function fees(price,platName){const p=plat(platName);return price>0?price*p.pct/100+p.fix:0}
+function calcItem(it){
+  const sold=it.sell!==''&&it.sell!=null;
+  const f=sold?fees(num(it.sell),it.plat):0;
+  const profit=sold?num(it.sell)-num(it.buy)-num(it.ship)-f:null;
+  const roi=sold&&num(it.buy)>0?profit/num(it.buy)*100:null;
+  return {sold,fees:f,profit,roi,age:days(it.buyDate,sold&&it.sellDate?it.sellDate:today())};
+}
+
+/* Theme */
+$('themeBtn').onclick=()=>{
+  const cur=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+  const next=cur==='dark'?'light':'dark';
+  document.documentElement.dataset.theme=next;
+  try{localStorage.setItem(KEY+'.theme',next)}catch(e){}
+};
+try{const t=localStorage.getItem(KEY+'.theme');if(t)document.documentElement.dataset.theme=t}catch(e){}
+
+/* Tabs */
+$('tabs').onclick=e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('active',x===b));
+  document.querySelectorAll('section.tab').forEach(s=>s.classList.toggle('active',s.id===b.dataset.tab));
+  if(b.dataset.tab==='plan')prefillPlan();
+  renderAll();
+};
+
+/* Bar list helper */
+function bars(el,rows,fmt=eur){
+  if(!rows.length){el.innerHTML='<div class="empty">Noch keine Verkäufe erfasst.</div>';return}
+  const max=Math.max(...rows.map(r=>Math.abs(r.v)),1);
+  el.innerHTML=rows.map(r=>`<div class="bar-row"><span title="${esc(r.k)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.k)}</span><div><div class="bar ${r.v<0?'neg':''}" style="width:${Math.max(2,Math.abs(r.v)/max*100)}%"></div></div><span class="num" style="text-align:right">${fmt(r.v)}</span></div>`).join('');
+}
+
+/* Dashboard */
+function renderDash(){
+  const rows=S.items.map(it=>({it,...calcItem(it)}));
+  const sold=rows.filter(r=>r.sold), stock=rows.filter(r=>!r.sold);
+  const revenue=sold.reduce((a,r)=>a+num(r.it.sell),0);
+  const profit=sold.reduce((a,r)=>a+r.profit,0);
+  const cost=sold.reduce((a,r)=>a+num(r.it.buy),0);
+  const stockVal=stock.reduce((a,r)=>a+num(r.it.buy),0);
+  const avgDays=sold.length?sold.reduce((a,r)=>a+r.age,0)/sold.length:0;
+  const m30=sold.filter(r=>r.it.sellDate&&days(r.it.sellDate,today())<=30);
+  const p30=m30.reduce((a,r)=>a+r.profit,0)-num(S.settings.fixed);
+  const k=[
+    ['Umsatz gesamt',eur(revenue)],
+    ['Gewinn gesamt',eur(profit),profit>=0?'pos':'neg'],
+    ['Gewinn letzte 30 Tage (nach Fixkosten)',eur(p30),p30>=0?'pos':'neg'],
+    ['Marge',revenue?pct(profit/revenue*100):'–'],
+    ['ROI',cost?pct(profit/cost*100):'–'],
+    ['Verkäufe / Im Lager',`${sold.length} / ${stock.length}`],
+    ['Kapital im Lager',eur(stockVal)],
+    ['Ø Tage bis Verkauf',sold.length?avgDays.toFixed(0):'–']
+  ];
+  $('kpis').innerHTML=k.map(([l,v,c])=>`<div class="kpi"><div class="l">${l}</div><div class="v ${c||''}">${v}</div></div>`).join('');
+
+  const byMonth={};sold.forEach(r=>{const m=(r.it.sellDate||r.it.buyDate).slice(0,7);byMonth[m]=(byMonth[m]||0)+r.profit});
+  const months=Object.keys(byMonth).sort().slice(-12);
+  bars($('monthChart'),months.map(m=>({k:new Date(m+'-01').toLocaleDateString('de-DE',{month:'short',year:'2-digit'}),v:byMonth[m]})));
+
+  const byPlat={};sold.forEach(r=>{byPlat[r.it.plat]=(byPlat[r.it.plat]||0)+r.profit});
+  bars($('platformChart'),Object.entries(byPlat).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({k,v})));
+
+  const byCat={};sold.forEach(r=>{const c=r.it.cat||'Ohne Kategorie';(byCat[c]=byCat[c]||[]).push(r.profit)});
+  bars($('catChart'),Object.entries(byCat).map(([k,a])=>({k:`${k} (${a.length})`,v:a.reduce((x,y)=>x+y,0)/a.length})).sort((a,b)=>b.v-a.v).slice(0,8));
+
+  $('oldDaysLbl').textContent=S.settings.oldDays;
+  const old=stock.filter(r=>r.age>num(S.settings.oldDays)).sort((a,b)=>b.age-a.age);
+  $('oldList').innerHTML=old.length?`<p class="muted" style="margin-top:0">${eur(old.reduce((a,r)=>a+num(r.it.buy),0))} gebundenes Kapital. Tipp: Preis senken, neu listen oder als Bundle verkaufen.</p>`+old.slice(0,8).map(r=>`<div class="bar-row" style="grid-template-columns:1fr auto auto"><span>${esc(r.it.name)}</span><span class="pill old">${r.age} Tage</span><span class="num">${eur(num(r.it.buy))}</span></div>`).join(''):'<div class="empty">Keine Ladenhüter 🎉</div>';
+}
+
+/* Inventory */
+function fillSelects(){
+  $('f_plat').innerHTML=S.platforms.map(p=>`<option>${esc(p.name)}</option>`).join('');
+  const uniq=k=>[...new Set(S.items.map(i=>i[k]).filter(Boolean))];
+  $('catList').innerHTML=uniq('cat').map(c=>`<option value="${esc(c)}">`).join('');
+  $('srcList').innerHTML=uniq('src').map(c=>`<option value="${esc(c)}">`).join('');
+}
+function renderItems(){
+  const f=$('filterStatus').value,q=$('search').value.toLowerCase();
+  const list=S.items.map(it=>({it,...calcItem(it)}))
+    .filter(r=>f==='all'||(f==='sold'?r.sold:!r.sold))
+    .filter(r=>!q||[r.it.name,r.it.cat,r.it.src,r.it.plat].join(' ').toLowerCase().includes(q))
+    .sort((a,b)=>(b.it.sellDate||b.it.buyDate).localeCompare(a.it.sellDate||a.it.buyDate));
+  $('itemRows').innerHTML=list.length?list.map(r=>`<tr>
+    <td>${esc(r.it.name)}</td><td>${esc(r.it.cat)}</td><td>${esc(r.it.plat)}</td>
+    <td class="num">${eur(num(r.it.buy))}</td>
+    <td class="num">${r.sold?eur(num(r.it.sell)):'–'}</td>
+    <td class="num">${r.sold?eur(r.fees):'–'}</td>
+    <td class="num ${r.sold?(r.profit>=0?'pos':'neg'):''}">${r.sold?eur(r.profit):'–'}</td>
+    <td class="num">${r.roi!=null?pct(r.roi):'–'}</td>
+    <td>${r.sold?'<span class="pill sold">verkauft</span>':`<span class="pill ${r.age>num(S.settings.oldDays)?'old':''}">${r.age} T. im Lager</span>`}</td>
+    <td><button class="btn ghost small" data-edit="${r.it.id}">✎</button> <button class="btn ghost small" data-del="${r.it.id}">✕</button></td>
+  </tr>`).join(''):'<tr><td colspan="10" class="empty">Keine Artikel. Füge oben deinen ersten Artikel hinzu.</td></tr>';
+}
+function resetForm(){
+  $('itemForm').reset();$('f_id').value='';$('f_buyDate').value=today();$('f_ship').value=0;
+  $('formTitle').textContent='Artikel hinzufügen';$('cancelEdit').hidden=true;
+}
+$('itemForm').onsubmit=e=>{
+  e.preventDefault();
+  const sell=$('f_sell').value;
+  const it={id:$('f_id').value||crypto.randomUUID?.()||String(Date.now()+Math.random()),
+    name:$('f_name').value.trim(),cat:$('f_cat').value.trim(),src:$('f_src').value.trim(),
+    buy:num($('f_buy').value),buyDate:$('f_buyDate').value,plat:$('f_plat').value,
+    sell:sell===''?'':num(sell),sellDate:sell===''?'':($('f_sellDate').value||today()),ship:num($('f_ship').value)};
+  const i=S.items.findIndex(x=>x.id===it.id);
+  if(i>=0)S.items[i]=it;else S.items.push(it);
+  save();resetForm();renderAll();
+};
+$('cancelEdit').onclick=resetForm;
+$('itemRows').onclick=e=>{
+  const ed=e.target.dataset.edit,del=e.target.dataset.del;
+  if(del&&confirm('Artikel löschen?')){S.items=S.items.filter(i=>i.id!==del);save();renderAll()}
+  if(ed){const it=S.items.find(i=>i.id===ed);
+    $('f_id').value=it.id;$('f_name').value=it.name;$('f_cat').value=it.cat;$('f_src').value=it.src||'';
+    $('f_buy').value=it.buy;$('f_buyDate').value=it.buyDate;$('f_plat').value=it.plat;
+    $('f_sell').value=it.sell;$('f_sellDate').value=it.sellDate;$('f_ship').value=it.ship;
+    $('formTitle').textContent='Artikel bearbeiten';$('cancelEdit').hidden=false;
+    $('itemForm').scrollIntoView({behavior:'smooth'});}
+};
+$('filterStatus').onchange=renderItems;$('search').oninput=renderItems;
+
+/* CSV */
+const COLS=['name','cat','src','buy','buyDate','plat','sell','sellDate','ship'];
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+$('exportCsv').onclick=()=>{
+  const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const lines=[[...COLS,'gebuehren','gewinn'].join(';'),...S.items.map(it=>{const c=calcItem(it);return [...COLS.map(k=>q(it[k])),c.sold?c.fees.toFixed(2):'',c.sold?c.profit.toFixed(2):''].join(';')})];
+  download('reselling-'+today()+'.csv','﻿'+lines.join('\n'),'text/csv');
+};
+function parseCsv(t){
+  const rows=[];let row=[],cur='',q=false;
+  for(let i=0;i<t.length;i++){const c=t[i];
+    if(q){if(c==='"'){if(t[i+1]==='"'){cur+='"';i++}else q=false}else cur+=c}
+    else if(c==='"')q=true;else if(c===';'||c===','){row.push(cur);cur=''}
+    else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur=''}else if(c!=='\r')cur+=c}
+  if(cur||row.length){row.push(cur);rows.push(row)}return rows;
+}
+$('importCsv').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const rows=parseCsv((await f.text()).replace(/^﻿/,''));const head=rows.shift().map(h=>h.trim());
+  let n=0;rows.forEach(r=>{if(!r.join('').trim())return;const it={id:String(Date.now()+Math.random())};
+    COLS.forEach(k=>{const i=head.indexOf(k);it[k]=i>=0?r[i]:''});
+    ['buy','ship'].forEach(k=>it[k]=num(String(it[k]).replace(',','.')));
+    if(it.sell!=='')it.sell=num(String(it.sell).replace(',','.'));
+    if(!it.buyDate)it.buyDate=today();if(!it.plat)it.plat=S.platforms[0].name;
+    S.items.push(it);n++});
+  save();renderAll();alert(n+' Artikel importiert.');e.target.value='';
+};
+
+/* Calculator */
+function renderCalc(){
+  const sell=num($('c_sell').value),buy=num($('c_buy').value),ship=num($('c_ship').value),roi=num($('c_roi').value);
+  $('calcRows').innerHTML=S.platforms.map(p=>{
+    const f=fees(sell,p.name),pr=sell-buy-ship-f;
+    const maxBuy=(sell-ship-f)/(1+roi/100);
+    return `<tr><td>${esc(p.name)}</td><td class="num">${eur(f)}</td><td class="num ${pr>=0?'pos':'neg'}">${eur(pr)}</td>
+      <td class="num">${sell?pct(pr/sell*100):'–'}</td><td class="num">${buy?pct(pr/buy*100):'–'}</td><td class="num"><b>${eur(Math.max(0,maxBuy))}</b></td></tr>`}).join('');
+}
+['c_sell','c_buy','c_ship','c_roi'].forEach(id=>$(id).oninput=renderCalc);
+
+/* Plan */
+let prefilled=false;
+function prefillPlan(){
+  if(prefilled)return;prefilled=true;
+  const sold=S.items.map(it=>({it,...calcItem(it)})).filter(r=>r.sold);
+  if(sold.length>=3){
+    $('p_avgProfit').value=(sold.reduce((a,r)=>a+r.profit,0)/sold.length).toFixed(2);
+    $('p_avgBuy').value=(sold.reduce((a,r)=>a+num(r.it.buy),0)/sold.length).toFixed(2);
+    $('p_days').value=Math.max(1,Math.round(sold.reduce((a,r)=>a+r.age,0)/sold.length));
+    const cost=sold.reduce((a,r)=>a+num(r.it.buy),0);
+    if(cost>0)$('s_roi').value=Math.round(sold.reduce((a,r)=>a+r.profit,0)/cost*100);
+  }
+  renderPlan();
+}
+function renderPlan(){
+  const goal=num($('p_goal').value)+num(S.settings.fixed),ap=num($('p_avgProfit').value),ab=num($('p_avgBuy').value);
+  const d=Math.max(1,num($('p_days').value)),mins=num($('p_min').value),st=Math.max(1,num($('p_sellThrough').value))/100;
+  if(ap<=0){$('goalResult').innerHTML='Ø Gewinn je Verkauf muss größer als 0 sein.';}
+  else{
+    const salesM=Math.ceil(goal/ap),listM=Math.ceil(salesM/st);
+    const stockNeeded=Math.ceil(salesM*d/30/st);const capital=stockNeeded*ab;
+    const hours=listM*mins/60;const hourly=hours?num($('p_goal').value)/hours:0;
+    $('goalResult').innerHTML=`Für <b>${eur(num($('p_goal').value))}</b> Gewinn/Monat${num(S.settings.fixed)?` (+ ${eur(num(S.settings.fixed))} Fixkosten)`:''} brauchst du:
+      <ul style="margin:8px 0 0;padding-left:20px">
+      <li><b>${salesM}</b> Verkäufe pro Monat (≈ <b>${(salesM/4.33).toFixed(1)}</b> pro Woche, <b>${(salesM/30).toFixed(1)}</b> pro Tag)</li>
+      <li><b>${listM}</b> neue Artikel pro Monat einkaufen &amp; listen</li>
+      <li>ca. <b>${stockNeeded}</b> Artikel dauerhaft im Lager → <b>${eur(capital)}</b> gebundenes Kapital</li>
+      <li>ca. <b>${hours.toFixed(0)} Std.</b> Arbeit pro Monat (≈ ${(hours/4.33).toFixed(1)} Std./Woche) → <b>${eur(hourly)}</b> pro Stunde</li></ul>
+      <p class="muted" style="margin:8px 0 0">${hours/4.33>20?'⚠️ Über 20 Std./Woche: Prozesse auslagern (Fotos, Versand) oder höherpreisige Artikel einkaufen, um Zeit pro Euro zu senken.':'Hebel: Höherer Ø Gewinn je Artikel senkt Zeit- und Kapitalbedarf am stärksten.'}</p>`;
+  }
+  // Simulation
+  let cap=num($('s_cap').value);const r=num($('s_roi').value)/100,t=num($('s_turns').value),re=num($('s_reinv').value)/100,max=num($('s_max').value)||Infinity;
+  const M=Math.min(36,Math.max(1,num($('s_months').value)));const data=[];let taken=0;
+  for(let m=1;m<=M;m++){const p=cap*r*t;const reinv=p*re;taken+=p-reinv;let next=cap+reinv;let overflow=0;if(next>max){overflow=next-max;next=max}taken+=overflow;data.push({m,cap,p,take:p-reinv+overflow});cap=next;}
+  drawSim(data);
+  const last=data[data.length-1];
+  $('simResult').innerHTML=`Nach ${M} Monaten: Kapital <b>${eur(cap)}</b>, Monatsgewinn <b>${eur(last.p)}</b>, insgesamt entnommen <b>${eur(taken)}</b>.${cap>=max?' <span class="muted">Kapitallimit erreicht – ab hier wächst nur noch die Entnahme. Zum weiteren Skalieren: Lager, Zeit oder Team erweitern.</span>':''}`;
+}
+function drawSim(data){
+  const W=600,H=220,P=36,max=Math.max(...data.map(d=>d.p),1),bw=(W-P-10)/data.length;
+  const s=getComputedStyle(document.documentElement);
+  const acc=s.getPropertyValue('--accent'),good=s.getPropertyValue('--good'),mut=s.getPropertyValue('--muted'),line=s.getPropertyValue('--line');
+  let svg=`<svg class="chart" viewBox="0 0 ${W} ${H+24}" role="img" aria-label="Monatsgewinn und Entnahme pro Monat">`;
+  for(let i=0;i<=4;i++){const y=10+(H-20)*i/4;svg+=`<line x1="${P}" x2="${W}" y1="${y}" y2="${y}" stroke="${line}"/><text x="${P-4}" y="${y+4}" text-anchor="end" font-size="10" fill="${mut}">${Math.round(max*(1-i/4))}</text>`}
+  data.forEach((d,i)=>{const x=P+i*bw+2,h=(H-20)*d.p/max,ht=(H-20)*d.take/max;
+    svg+=`<rect x="${x}" y="${H-10-h}" width="${bw-4}" height="${h}" fill="${acc}" rx="2"><title>Monat ${d.m}: Gewinn ${eur(d.p)}, Entnahme ${eur(d.take)}</title></rect>`;
+    svg+=`<rect x="${x}" y="${H-10-ht}" width="${bw-4}" height="${ht}" fill="${good}" rx="2" opacity=".9"/>`;
+    svg+=`<text x="${x+(bw-4)/2}" y="${H+6}" text-anchor="middle" font-size="10" fill="${mut}">${d.m}</text>`});
+  svg+=`</svg><div class="row muted" style="font-size:.8rem;gap:14px"><span><span style="display:inline-block;width:10px;height:10px;background:${acc};border-radius:2px"></span> Gewinn/Monat</span><span><span style="display:inline-block;width:10px;height:10px;background:${good};border-radius:2px"></span> davon entnommen</span></div>`;
+  $('simChart').innerHTML=svg;
+}
+document.querySelectorAll('#plan input').forEach(i=>i.oninput=renderPlan);
+
+/* Checklist */
+const CHECK={
+  'Stufe 1 – Fundament':[
+    'Jeden Einkauf & Verkauf in diesem Tool erfassen',
+    'Gewerbe anmelden & Steuerfrage klären (z. B. Kleinunternehmerregelung) – ggf. Steuerberater fragen',
+    'Separates Geschäftskonto für Reselling nutzen',
+    'Feste Foto-Ecke mit gutem Licht & neutralem Hintergrund einrichten',
+    'Listing-Vorlagen (Titel, Beschreibung, Maße) für Top-Kategorien anlegen'],
+  'Stufe 2 – Effizienz':[
+    'Die 2–3 profitabelsten Kategorien identifizieren (Dashboard) und Fokus darauf legen',
+    'Verlässliche Einkaufsquellen aufbauen (Haushaltsauflösungen, Großhandel, Restposten, feste Flohmärkte)',
+    'Batch-Arbeit: Fotos, Listings und Versand an festen Tagen bündeln',
+    'Versandmaterial in größeren Mengen günstiger einkaufen',
+    'Ladenhüter-Regel: nach X Tagen Preis senken oder als Bundle verkaufen'],
+  'Stufe 3 – Reichweite':[
+    'Auf mindestens einer weiteren Plattform listen (Crosslisting)',
+    'Lagersystem mit Lagerplatz-Nummern (z. B. Kiste A3) einführen',
+    'Stammkunden-Kanal aufbauen (Instagram, WhatsApp-Kanal, Newsletter)',
+    'Eigenen Shop prüfen, sobald genug Stammkunden vorhanden sind'],
+  'Stufe 4 – Skalieren':[
+    'Wiederkehrende Aufgaben auslagern (Fotos, Verpackung – z. B. Minijob/Freelancer)',
+    'Kapitalplan festlegen: feste Reinvestitionsquote pro Monat',
+    'Größeres Lager/Raum anmieten, wenn Platz zum Engpass wird',
+    'Monatliches Review: KPIs prüfen, Ziel im Skalierungsplan anpassen']
+};
+function renderCheck(){
+  let total=0,done=0,html='';
+  Object.entries(CHECK).forEach(([h,items])=>{html+=`<h3>${h}</h3>`;items.forEach((t,i)=>{const k=h+'|'+i;total++;if(S.checks[k])done++;
+    html+=`<label><input type="checkbox" data-k="${esc(k)}" ${S.checks[k]?'checked':''}><span>${esc(t)}</span></label>`})});
+  $('checklist').innerHTML=html;$('progBar').style.width=(done/total*100)+'%';$('progTxt').textContent=`${done}/${total}`;
+}
+$('checklist').onchange=e=>{const k=e.target.dataset.k;if(k){S.checks[k]=e.target.checked;save();renderCheck()}};
+
+/* Settings */
+function renderPlats(){
+  $('platRows').innerHTML=S.platforms.map((p,i)=>`<tr>
+    <td><input data-i="${i}" data-f="name" value="${esc(p.name)}"></td>
+    <td class="num"><input data-i="${i}" data-f="pct" type="number" step="0.1" value="${p.pct}" style="width:90px;text-align:right"></td>
+    <td class="num"><input data-i="${i}" data-f="fix" type="number" step="0.01" value="${p.fix}" style="width:90px;text-align:right"></td>
+    <td><button class="btn ghost small" data-rm="${i}">✕</button></td></tr>`).join('');
+  $('set_old').value=S.settings.oldDays;$('set_fixed').value=S.settings.fixed;
+}
+$('platRows').onchange=e=>{const i=e.target.dataset.i,f=e.target.dataset.f;if(i==null)return;
+  const old=S.platforms[i].name;S.platforms[i][f]=f==='name'?e.target.value.trim():num(e.target.value);
+  if(f==='name')S.items.forEach(it=>{if(it.plat===old)it.plat=S.platforms[i].name});save();fillSelects();renderCalc()};
+$('platRows').onclick=e=>{const i=e.target.dataset.rm;if(i!=null&&S.platforms.length>1&&confirm('Plattform entfernen?')){S.platforms.splice(i,1);save();renderAll()}};
+$('addPlat').onclick=()=>{S.platforms.push({name:'Neue Plattform',pct:0,fix:0});save();renderAll()};
+$('set_old').onchange=e=>{S.settings.oldDays=num(e.target.value);save();renderAll()};
+$('set_fixed').onchange=e=>{S.settings.fixed=num(e.target.value);save();renderAll()};
+$('backup').onclick=()=>download('reselling-backup-'+today()+'.json',JSON.stringify(S,null,2),'application/json');
+$('restore').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{S=Object.assign(structuredClone(DEFAULT),JSON.parse(await f.text()));save();renderAll();alert('Backup geladen.')}catch(err){alert('Datei konnte nicht gelesen werden.')}e.target.value=''};
+$('wipe').onclick=()=>{if(confirm('Wirklich ALLE Daten löschen? Vorher am besten ein Backup herunterladen.')){S=structuredClone(DEFAULT);save();prefilled=false;renderAll()}};
+$('demo').onclick=()=>{
+  const cats=[['Sneaker',35,90],['Vintage-Jacken',12,45],['Elektronik',40,85],['Bücher',1,9],['Spielzeug/LEGO',20,55]];
+  const pl=S.platforms.map(p=>p.name);const now=Date.now();
+  for(let i=0;i<40;i++){const [c,b,s]=cats[i%cats.length];const bd=new Date(now-(Math.random()*300+5)*864e5);
+    const sold=Math.random()<.8;const sd=new Date(Math.min(now,bd.getTime()+(Math.random()*50+3)*864e5));
+    S.items.push({id:'d'+i+now,name:`${c} #${i+1}`,cat:c,src:['Flohmarkt','Kleinanzeigen','Restposten'][i%3],
+      buy:+(b*(.6+Math.random()*.8)).toFixed(2),buyDate:bd.toISOString().slice(0,10),plat:pl[i%pl.length],
+      sell:sold?+(s*(.7+Math.random()*.6)).toFixed(2):'',sellDate:sold?sd.toISOString().slice(0,10):'',ship:sold?+(Math.random()*4).toFixed(2):0})}
+  save();prefilled=false;renderAll();alert('40 Beispielartikel geladen.');
+};
+
+function renderAll(){fillSelects();renderDash();renderItems();renderCalc();renderPlan();renderCheck();renderPlats()}
+resetForm();renderAll();
+})();
+</script>
+</body>
+</html>
