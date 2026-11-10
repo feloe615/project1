@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS restaurants (
   admin_key_hash       TEXT NOT NULL
 );
 
+-- Profil für die Restaurant-Suche. Per ALTER ergänzt, damit bestehende Datenbanken mitwachsen.
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS description  TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS cuisine      TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS price_level  INTEGER CHECK (price_level BETWEEN 1 AND 4);
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS rating       REAL CHECK (rating BETWEEN 1 AND 5);
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS rating_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS address      TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS city         TEXT;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS lat          DOUBLE PRECISION;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS lon          DOUBLE PRECISION;
+ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS listed       BOOLEAN NOT NULL DEFAULT TRUE;  -- in der Suche sichtbar
+
 -- Mehrere Zeilen pro Wochentag möglich (z. B. Mittag + Abend).
 CREATE TABLE IF NOT EXISTS opening_hours (
   restaurant_id INTEGER NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
@@ -148,11 +160,14 @@ export async function createRestaurant(db, { hours = [], tables = [], adminKey, 
   return db.tx(async (t) => {
     const [row] = await t.query(`
       INSERT INTO restaurants (slug, name, timezone, slot_interval_min, duration_min,
-        max_party_size, booking_horizon_days, min_notice_min, admin_key_hash)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        max_party_size, booking_horizon_days, min_notice_min, admin_key_hash,
+        description, cuisine, price_level, rating, rating_count, address, city, lat, lon)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       ON CONFLICT (slug) DO NOTHING RETURNING id`, [
       r.slug, r.name, r.timezone ?? 'Europe/Berlin', r.slot_interval_min ?? 15, r.duration_min ?? 90,
       r.max_party_size ?? 8, r.booking_horizon_days ?? 60, r.min_notice_min ?? 60, hashKey(key),
+      r.description ?? null, r.cuisine ?? null, r.price_level ?? null, r.rating ?? null,
+      r.rating_count ?? 0, r.address ?? null, r.city ?? null, r.lat ?? null, r.lon ?? null,
     ]);
     if (!row) return null;
     for (const h of hours) {

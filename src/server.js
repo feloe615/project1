@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { ACTIVE_STATUSES, hashKey, newToken } from './db.js';
 import { computeSlots, findTable } from './availability.js';
+import { distanceKm, groupByRestaurant, pickSlots, suggestDateTime } from './search.js';
 import { isValidDate, isValidTime, nowInTimeZone, toHHMM, toMin } from './time.js';
+
+/** Nur Restaurants mit Standort und Freigabe erscheinen in der Suche. */
+const SEARCHABLE = 'listed AND lat IS NOT NULL AND lon IS NOT NULL AND city IS NOT NULL';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const MIME = {
@@ -159,6 +163,97 @@ export function createApp(db, {
       if (!isValidDate(date)) throw new HttpError(400, 'Ungültiges Datum (erwartet JJJJ-MM-TT)');
       const partySize = parseParty(url.searchParams.get('partySize') ?? '2', r);
       return { date, partySize, slots: await slotsFor(db, r, date, partySize) };
+    }],
+
+    // --- Suche über alle Restaurants ---------------------------------------------
+    // Auswahlmöglichkeiten für das Suchformular: Städte (mit Mittelpunkt) und Küchen.
+    ['GET', /^\/api\/meta$/, async () => {
+      const cities = await db.query(`SELECT city, avg(lat) AS lat, avg(lon) AS lon, count(*)::int AS restaurants
+        FROM restaurants WHERE ${SEARCHABLE} GROUP BY city ORDER BY count(*) DESC, city`);
+      const cuisines = await db.query(
+        `SELECT DISTINCT cuisine FROM restaurants WHERE ${SEARCHABLE} AND cuisine IS NOT NULL ORDER BY cuisine`);
+      const local = nowInTimeZone('Europe/Berlin', now());
+      return {
+        today: local.date,
+        suggested: suggestDateTime(local),
+        cities,
+        cuisines: cuisines.map((c) => c.cuisine),
+      };
+    }],
+
+    // Restaurants, die zur Wunschzeit (oder kurz davor/danach) einen passenden Tisch frei haben.
+    ['GET', /^\/api\/search$/, async ({ url }) => {
+      const p = url.searchParams;
+      const date = p.get('date');
+      const time = p.get('time');
+      if (!isValidDate(date)) throw new HttpError(400, 'Ungültiges Datum (erwartet JJJJ-MM-TT)');
+      if (!isValidTime(time)) throw new HttpError(400, 'Ungültige Uhrzeit (erwartet HH:MM)');
+      const partySize = Number(p.get('partySize') ?? 2);
+      if (!Number.isInteger(partySize) || partySize < 1 || partySize > 50) throw new HttpError(400, 'Ungültige Personenzahl');
+
+      const num = (key, min, max) => {
+        if (!p.get(key)) return null;
+        const n = Number(p.get(key));
+        if (!Number.isFinite(n) || n < min || n > max) throw new HttpError(400, `Ungültiger Wert für ${key}`);
+        return n;
+      };
+      const lat = num('lat', -90, 90);
+      const lon = num('lon', -180, 180);
+      if (lat === null || lon === null) throw new HttpError(400, 'Standort fehlt (lat und lon)');
+      const radiusKm = num('radiusKm', 0.1, 100) ?? 5;
+      const maxPrice = num('maxPrice', 1, 4);
+      const minRating = num('minRating', 1, 5);
+      const cuisines = (p.get('cuisine') ?? '').split(',').map((c) => c.trim()).filter(Boolean).slice(0, 20);
+      const sort = p.get('sort') === 'rating' ? 'rating' : 'distance';
+
+      // 1. Harte Kriterien in der Datenbank, Entfernung anschließend in JavaScript.
+      const candidates = (await db.query(
+        `SELECT * FROM restaurants WHERE ${SEARCHABLE}
+           AND max_party_size >= $1
+           AND ($2::int IS NULL OR price_level <= $2)
+           AND ($3::real IS NULL OR rating >= $3)
+           AND (cardinality($4::text[]) = 0 OR cuisine = ANY($4::text[]))`,
+        [partySize, maxPrice, minRating, cuisines]))
+        .map((r) => ({ ...r, distance: distanceKm(lat, lon, r.lat, r.lon) }))
+        .filter((r) => r.distance <= radiusKm);
+      if (!candidates.length) return { date, time, partySize, results: [] };
+
+      // 2. Verfügbarkeit für alle Kandidaten mit vier Abfragen statt vier pro Restaurant.
+      const ids = candidates.map((r) => r.id);
+      const [hours, tables, reservations, closures] = await Promise.all([
+        db.query('SELECT * FROM opening_hours WHERE restaurant_id = ANY($1::int[])', [ids]),
+        db.query('SELECT * FROM tables WHERE restaurant_id = ANY($1::int[])', [ids]),
+        db.query(`SELECT restaurant_id, table_id, start_min, end_min FROM reservations
+          WHERE restaurant_id = ANY($1::int[]) AND date = $2 AND status IN (${ACTIVE})`, [ids, date]),
+        db.query('SELECT restaurant_id FROM closures WHERE restaurant_id = ANY($1::int[]) AND date = $2', [ids, date]),
+      ].map((q) => q.then(groupByRestaurant)));
+
+      const results = candidates.map((r) => {
+        const slots = pickSlots(computeSlots({
+          restaurant: r,
+          hours: hours.get(r.id) ?? [],
+          tables: tables.get(r.id) ?? [],
+          reservations: reservations.get(r.id) ?? [],
+          closed: closures.has(r.id),
+          date,
+          partySize,
+          now: nowInTimeZone(r.timezone, now()),
+        }), time);
+        return {
+          slug: r.slug, name: r.name, description: r.description, cuisine: r.cuisine,
+          priceLevel: r.price_level, rating: r.rating === null ? null : Math.round(r.rating * 10) / 10,
+          ratingCount: r.rating_count, address: r.address, city: r.city,
+          distanceKm: Math.round(r.distance * 10) / 10,
+          exact: slots.some((s) => s.exact),
+          slots,
+        };
+      }).filter((r) => r.slots.length);
+
+      // Restaurants mit genau der Wunschzeit zuerst, danach nach Entfernung oder Bewertung.
+      results.sort((a, b) => Number(b.exact) - Number(a.exact)
+        || (sort === 'rating' ? (b.rating ?? 0) - (a.rating ?? 0) : 0)
+        || a.distanceKm - b.distanceKm);
+      return { date, time, partySize, results };
     }],
 
     ['POST', /^\/api\/restaurants\/([\w-]+)\/reservations$/, async ({ params: [slug], req }) => {

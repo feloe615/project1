@@ -1,9 +1,16 @@
 # Tischbuchung
 
-Ein einbettbares Tischreservierungs-System für Restaurant-Websites, ähnlich wie OpenTable.
-Restaurants binden ein kleines Skript in ihre Website ein. Gäste wählen dort Personenzahl,
-Datum und Uhrzeit und reservieren direkt. Das Team sieht die Buchungen in einer
-Verwaltungsoberfläche.
+Eine Plattform zum Buchen von Tischen in Restaurants, ähnlich wie OpenTable. Sie besteht aus
+zwei Teilen:
+
+- **Marktplatz für Gäste** (`/`): Datum, Uhrzeit, Personenzahl, Ort und Umkreis wählen, nach
+  Küche, Preis und Bewertung filtern. Angezeigt werden nur Restaurants, die zu dieser Zeit
+  wirklich einen passenden Tisch frei haben. Gebucht wird direkt auf der Seite.
+- **Widget für Restaurant-Websites**: Restaurants binden ein kleines Skript in ihre eigene
+  Website ein. Das Team sieht alle Buchungen in einer Verwaltungsoberfläche.
+
+Geplant sind KI-Vorschläge, Gäste-Konten, die Abrechnung einer Vermittlungspauschale und eine
+App (siehe „Nächste Schritte“).
 
 **Technik:** Node.js 22 und PostgreSQL. Lokal ist keine Datenbank-Installation nötig: Ohne
 `DATABASE_URL` läuft ein eingebettetes PostgreSQL (PGlite) im Ordner `data/`.
@@ -12,16 +19,17 @@ Verwaltungsoberfläche.
 
 ```bash
 npm install
-npm start          # startet auf http://localhost:3000 und legt ein Demo-Restaurant an
+npm start          # startet auf http://localhost:3000 und legt Demo-Restaurants an
 npm test           # Unit- und API-Tests
 ```
 
-Beim ersten Start wird das fiktive Restaurant `trattoria-demo` angelegt und der
-**Admin-Schlüssel** in der Konsole ausgegeben. Sie können ihn auch festlegen:
-`ADMIN_KEY=geheim npm start`.
+Beim ersten Start werden zehn erfundene Demo-Restaurants in Berlin und München angelegt
+(`src/seed.js`) und der gemeinsame **Admin-Schlüssel** in der Konsole ausgegeben. Sie können
+ihn auch festlegen: `ADMIN_KEY=geheim npm start`.
 
 | Seite | Zweck |
 |---|---|
+| `/` | Marktplatz: Restaurants mit freiem Tisch suchen und buchen |
 | `/demo.html` | Beispiel-Restaurant-Website mit eingebettetem Widget |
 | `/admin.html` | Tagesübersicht, Status ändern (platziert, nicht erschienen …), Tage sperren |
 | `/embed.html?token=…` | Link für Gäste zum Einsehen und Stornieren |
@@ -93,6 +101,8 @@ Hinweise:
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
+| GET | `/api/meta` | Städte (mit Mittelpunkt), Küchen und eine sinnvolle Vorgabe für Datum/Uhrzeit |
+| GET | `/api/search?date&time&partySize&lat&lon` | Restaurants mit freiem Tisch; optional `radiusKm`, `cuisine` (kommagetrennt), `maxPrice` (1–4), `minRating`, `sort` (`distance`/`rating`) |
 | GET | `/api/restaurants/:slug` | Name, max. Gruppengröße, heutiges Datum |
 | GET | `/api/restaurants/:slug/availability?date=JJJJ-MM-TT&partySize=N` | Zeitfenster `[{time, available}]` |
 | POST | `/api/restaurants/:slug/reservations` | `{date, time, partySize, name, email, phone?, notes?}` → `201` mit `token` |
@@ -112,6 +122,17 @@ Schutz gegen Missbrauch: Rate-Limit pro IP für Buchungen (10 pro 10 Minuten, in
 gezählt, gespeichert wird nur ein Hash der IP), ein Honeypot-Feld gegen Bots, Begrenzung der
 Eingabelängen. Admin-Schlüssel werden nur als SHA-256-Hash gespeichert.
 
+### So arbeitet die Suche
+
+1. Die Datenbank filtert die harten Kriterien: Gruppengröße, Preis, Bewertung, Küche.
+2. Die Entfernung zum gewählten Ort wird berechnet und auf den Umkreis begrenzt.
+3. Für die verbleibenden Restaurants wird die Verfügbarkeit berechnet. Übrig bleiben nur
+   Restaurants mit freien Zeiten im Abstand von höchstens 90 Minuten zur Wunschzeit.
+4. Restaurants mit genau der Wunschzeit stehen oben, danach zählt Entfernung oder Bewertung.
+
+In der Suche erscheinen nur Restaurants mit Standort (`lat`, `lon`, `city`) und `listed = true`.
+Bewertungen sind derzeit Platzhalterwerte aus den Demo-Daten.
+
 ## Projektstruktur
 
 ```
@@ -121,10 +142,12 @@ src/
   availability.js   reine Verfügbarkeits- und Tischzuweisungslogik (gut testbar)
   db.js             PostgreSQL-Schema, Verbindung (pg oder PGlite), Restaurant anlegen
   server.js         API-Routen, lokal auch statische Dateien
-  seed.js           Demo-Restaurant
+  search.js         Entfernung, Auswahl der Zeiten rund um die Wunschzeit
+  seed.js           erfundene Demo-Restaurants
   time.js           Datums- und Zeit-Hilfsfunktionen, Zeitzonen
   index.js          Startpunkt für den lokalen Betrieb
 public/
+  index.html, search.js  Marktplatz: Suche und Buchung für Gäste
   widget.js         Einbettungs-Skript für Restaurant-Websites
   embed.html/.js    Buchungsoberfläche (läuft im iframe)
   admin.html        Verwaltungsoberfläche
@@ -136,7 +159,20 @@ vercel.json         Vercel-Konfiguration
 Die Tests laufen standardmäßig gegen PGlite. Mit `TEST_DATABASE_URL=postgres://… npm test`
 laufen sie gegen einen echten PostgreSQL-Server (dessen Schema `public` wird dabei geleert).
 
-## Nächste Schritte für den Produktivbetrieb
+## Nächste Schritte
+
+Für den Marktplatz, in dieser Reihenfolge:
+
+1. **KI-Vorschläge**: Freitext-Wünsche verstehen ("ruhiger Italiener für ein Date"), Treffer
+   sortieren und begründen. Die harten Kriterien bleiben in der Datenbank.
+2. **Gäste-Konten** (eigene Buchungen, Favoriten, Bewertungen) und **Selbstanmeldung für
+   Restaurants** (Profil, Öffnungszeiten, Tische selbst pflegen).
+3. **Abrechnung der Vermittlungspauschale** pro Reservierung, z. B. über Stripe.
+4. **App**: installierbare Web-App, danach Apps für App Store und Play Store auf derselben API.
+5. **Echte Standortsuche**: Adresse eingeben (Geocoding) statt Stadt aus der Liste; bei vielen
+   Restaurants die Umkreissuche in die Datenbank verlagern (PostGIS).
+
+Für den Produktivbetrieb allgemein:
 
 1. **E-Mail-Bestätigung und Erinnerung** (z. B. über SMTP oder Postmark). In `server.js` ist
    die Stelle markiert. Der Verwaltungslink mit Token gehört in diese E-Mail.

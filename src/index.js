@@ -1,7 +1,7 @@
 // Lokaler Start (npm start). Auf Vercel wird stattdessen api/index.js verwendet.
 import { mkdirSync } from 'node:fs';
 import { openDb } from './db.js';
-import { seedIfEmpty } from './seed.js';
+import { seedDemo } from './seed.js';
 import { createHttpServer } from './server.js';
 
 // Mit DATABASE_URL: echter PostgreSQL-Server. Ohne: eingebettetes PGlite im Ordner data/.
@@ -11,7 +11,7 @@ if (!url) {
   if (!url.startsWith('memory://')) mkdirSync(url, { recursive: true });
 }
 const db = await openDb(url);
-await seedIfEmpty(db);
+await seedDemo(db);
 
 const port = Number(process.env.PORT ?? 3000);
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
