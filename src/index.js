@@ -1,20 +1,17 @@
+// Lokaler Start (npm start). Auf Vercel wird stattdessen api/index.js verwendet.
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { openDb } from './db.js';
-import { seedDemo } from './seed.js';
+import { seedIfEmpty } from './seed.js';
 import { createHttpServer } from './server.js';
 
-const dbFile = process.env.DB_FILE ?? 'data/tischbuchung.db';
-if (dbFile !== ':memory:') mkdirSync(dirname(dbFile), { recursive: true });
-const db = openDb(dbFile);
-
-if (!db.prepare('SELECT 1 FROM restaurants LIMIT 1').get()) {
-  const { adminKey } = seedDemo(db, process.env.ADMIN_KEY);
-  console.log('Demo-Restaurant "trattoria-demo" angelegt.');
-  // Ein per Umgebungsvariable gesetzter Schlüssel gehört nicht ins Server-Protokoll.
-  if (process.env.ADMIN_KEY) console.log('Admin-Schlüssel: aus der Umgebungsvariable ADMIN_KEY');
-  else console.log(`Admin-Schlüssel: ${adminKey}  (bitte notieren – er wird nur gehasht gespeichert)`);
+// Mit DATABASE_URL: echter PostgreSQL-Server. Ohne: eingebettetes PGlite im Ordner data/.
+let url = process.env.DATABASE_URL;
+if (!url) {
+  url = process.env.DB_DIR ?? 'data/pgdata';
+  if (!url.startsWith('memory://')) mkdirSync(url, { recursive: true });
 }
+const db = await openDb(url);
+await seedIfEmpty(db);
 
 const port = Number(process.env.PORT ?? 3000);
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
@@ -24,10 +21,9 @@ const server = createHttpServer(db, { trustProxyHops }).listen(port, () => {
   console.log(`  Verwaltung:     http://localhost:${port}/admin.html`);
 });
 
-// Sauber beenden, wenn die Plattform den Container stoppt (z. B. bei einem neuen Deployment).
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
-    server.close(() => { db.close(); process.exit(0); });
+    server.close(async () => { await db.close().catch(() => {}); process.exit(0); });
     server.closeIdleConnections();
     setTimeout(() => process.exit(0), 5000).unref();
   });

@@ -5,12 +5,13 @@ Restaurants binden ein kleines Skript in ihre Website ein. Gäste wählen dort P
 Datum und Uhrzeit und reservieren direkt. Das Team sieht die Buchungen in einer
 Verwaltungsoberfläche.
 
-**Keine externen Abhängigkeiten:** Es wird nur Node.js ≥ 22.13 benötigt (mit dem eingebauten
-`node:sqlite`).
+**Technik:** Node.js 22 und PostgreSQL. Lokal ist keine Datenbank-Installation nötig: Ohne
+`DATABASE_URL` läuft ein eingebettetes PostgreSQL (PGlite) im Ordner `data/`.
 
 ## Schnellstart
 
 ```bash
+npm install
 npm start          # startet auf http://localhost:3000 und legt ein Demo-Restaurant an
 npm test           # Unit- und API-Tests
 ```
@@ -25,8 +26,13 @@ Beim ersten Start wird das fiktive Restaurant `trattoria-demo` angelegt und der
 | `/admin.html` | Tagesübersicht, Status ändern (platziert, nicht erschienen …), Tage sperren |
 | `/embed.html?token=…` | Link für Gäste zum Einsehen und Stornieren |
 
-Umgebungsvariablen: `PORT` (Standard 3000), `DB_FILE` (Standard `data/tischbuchung.db`), `ADMIN_KEY`,
-`TRUST_PROXY_HOPS` (siehe „Veröffentlichen“).
+| Umgebungsvariable | Bedeutung |
+|---|---|
+| `DATABASE_URL` | PostgreSQL-Verbindung (`postgres://…`). Ohne sie wird lokal PGlite verwendet. |
+| `ADMIN_KEY` | Admin-Schlüssel des Demo-Restaurants. Wird nur beim Anlegen übernommen. |
+| `PORT` | Port für den lokalen Start (Standard 3000) |
+| `DB_DIR` | Ordner für PGlite (Standard `data/pgdata`, `memory://` = flüchtig) |
+| `TRUST_PROXY_HOPS` | Anzahl der Proxys vor der App (lokal 0, auf Vercel 1) |
 
 ## Einbindung auf der Restaurant-Website
 
@@ -42,44 +48,29 @@ Das Widget läuft in einem iframe. So beeinflussen sich die CSS-Stile der Websit
 Widgets nicht, und es funktioniert mit jedem Baukasten (WordPress, Wix, Jimdo, statisches
 HTML …). Die Höhe passt sich automatisch an.
 
-## Veröffentlichen (Hosting)
+## Veröffentlichen auf Vercel
 
-Das Projekt enthält ein `Dockerfile` und läuft damit bei jedem Anbieter, der Container startet
-und **dauerhaften Speicher** bietet (Render, Railway, Fly.io, eigener Server). Die Datenbank ist
-eine SQLite-Datei unter `/data`. Ohne dauerhaften Speicher an dieser Stelle gehen alle
-Reservierungen bei jedem Neustart verloren. Reine „Serverless“-Plattformen wie Vercel oder
-Netlify eignen sich deshalb in der jetzigen Form nicht.
+Das Projekt ist für Vercel eingerichtet (`vercel.json`): Die Dateien in `public/` werden direkt
+ausgeliefert, alle Anfragen an `/api/*` gehen an die Funktion `api/index.js`.
 
-### Render (mit der beiliegenden `render.yaml`)
+1. Auf [vercel.com](https://vercel.com) **Add New → Project** wählen und dieses Repository
+   importieren. Ein Build-Schritt ist nicht nötig.
+2. Im Projekt unter **Storage** eine Postgres-Datenbank anlegen und verbinden (z. B. Neon).
+   Dadurch wird `DATABASE_URL` automatisch gesetzt. Am besten eine Region in der Nähe von
+   Frankfurt wählen, denn die Funktion läuft in `fra1`.
+3. Unter **Settings → Environment Variables** `ADMIN_KEY` auf einen langen, geheimen Wert setzen.
+4. Neu deployen. Beim ersten Aufruf werden die Tabellen und das Demo-Restaurant angelegt.
+5. Die Demo liegt unter `https://<projekt>.vercel.app/demo.html`, die Verwaltung unter
+   `/admin.html`.
 
-1. Auf [render.com](https://render.com) anmelden und das GitHub-Konto verbinden.
-2. **New → Blueprint** wählen und dieses Repository auswählen. Render liest die `render.yaml`
-   und legt den Dienst samt 1 GB Speicher an (Region Frankfurt, kostenpflichtiger Plan „Starter“).
-3. Nach dem ersten Start im Dashboard unter **Environment** den erzeugten `ADMIN_KEY` ablesen.
-4. Die Adresse lautet dann `https://<name>.onrender.com`. Die Demo liegt unter `/demo.html`,
-   die Verwaltung unter `/admin.html`.
+Hinweise:
 
-### Beliebiger Server mit Docker
-
-```bash
-docker build -t tischbuchung .
-docker run -d --name tischbuchung -p 3000:3000 -v tischbuchung-daten:/data \
-  -e ADMIN_KEY=ein-langer-geheimer-schluessel tischbuchung
-```
-
-Davor gehört ein Reverse-Proxy mit HTTPS (z. B. Caddy oder nginx).
-
-### Hinweise
-
-- `ADMIN_KEY` wird nur beim allerersten Start (leere Datenbank) übernommen und danach gehasht
+- `ADMIN_KEY` wird nur beim Anlegen des Demo-Restaurants übernommen und danach gehasht
   gespeichert. Eine spätere Änderung der Variable hat keine Wirkung.
-- `TRUST_PROXY_HOPS`: Anzahl der Proxys vor der App. Hinter einer Hosting-Plattform sieht die
-  App sonst nur die Adresse des Proxys, und das Buchungs-Limit (10 pro 10 Minuten) würde für
-  alle Gäste gemeinsam gelten. Mit `1` zählt der letzte Eintrag in `X-Forwarded-For`. Stehen
-  mehrere Proxys davor, muss der Wert entsprechend höher sein.
-- `GET /healthz` dient der Plattform als Zustandsprüfung.
-- Es darf nur **eine** Instanz laufen (SQLite-Datei, Rate-Limit im Arbeitsspeicher).
-- Backups: regelmäßig die Datei `/data/tischbuchung.db` sichern.
+- Der kostenlose Vercel-Tarif („Hobby“) ist für nicht-kommerzielle Nutzung gedacht.
+- `GET /healthz` prüft, ob die Datenbank erreichbar ist.
+- Jeder andere Anbieter mit Node.js und PostgreSQL funktioniert ebenfalls:
+  `DATABASE_URL=postgres://… npm start`.
 
 ## Wie die Verfügbarkeit berechnet wird
 
@@ -91,8 +82,9 @@ Davor gehört ein Reverse-Proxy mit HTTPS (z. B. Caddy oder nginx).
   `min_capacity`–`max_capacity` zur Gruppe passt. So bleiben große Tische für große Gruppen frei.
 - Regeln: Vorlaufzeit (`min_notice_min`), Buchungshorizont (`booking_horizon_days`), maximale
   Gruppengröße (`max_party_size`) und Sperrtage (Feiertage, Betriebsferien).
-- **Doppelbuchungen** werden verhindert: Die Verfügbarkeit wird innerhalb einer
-  `BEGIN IMMEDIATE`-Transaktion erneut geprüft, bevor gespeichert wird.
+- **Doppelbuchungen** werden verhindert: Jede Buchung sperrt in ihrer Transaktion die Zeile
+  des Restaurants (`SELECT … FOR UPDATE`) und prüft die Verfügbarkeit erneut, bevor gespeichert
+  wird. Gleichzeitige Buchungen laufen dadurch nacheinander, auch über mehrere Instanzen hinweg.
 - Alle Zeiten gelten in der Zeitzone des Restaurants (`timezone`, z. B. `Europe/Berlin`).
 
 ## API
@@ -116,28 +108,33 @@ Verwaltung (Header `Authorization: Bearer <Admin-Schlüssel>`):
 | GET | `/api/admin/:slug/closures` | Kommende Sperrtage |
 | PUT / DELETE | `/api/admin/:slug/closures/:date` | Tag sperren (`{reason?}`) oder freigeben |
 
-Schutz gegen Missbrauch: Rate-Limit pro IP für Buchungen, ein Honeypot-Feld gegen Bots,
-Begrenzung der Eingabelängen. Admin-Schlüssel werden nur als SHA-256-Hash gespeichert.
+Schutz gegen Missbrauch: Rate-Limit pro IP für Buchungen (10 pro 10 Minuten, in der Datenbank
+gezählt, gespeichert wird nur ein Hash der IP), ein Honeypot-Feld gegen Bots, Begrenzung der
+Eingabelängen. Admin-Schlüssel werden nur als SHA-256-Hash gespeichert.
 
 ## Projektstruktur
 
 ```
+api/
+  index.js          Einstiegspunkt für Vercel
 src/
   availability.js   reine Verfügbarkeits- und Tischzuweisungslogik (gut testbar)
-  db.js             SQLite-Schema, Transaktionen, Restaurant anlegen
-  server.js         HTTP-Server, API-Routen, statische Dateien
+  db.js             PostgreSQL-Schema, Verbindung (pg oder PGlite), Restaurant anlegen
+  server.js         API-Routen, lokal auch statische Dateien
   seed.js           Demo-Restaurant
   time.js           Datums- und Zeit-Hilfsfunktionen, Zeitzonen
-  index.js          Startpunkt
-Dockerfile          Container-Abbild für das Hosting
-render.yaml         Vorlage für Render
+  index.js          Startpunkt für den lokalen Betrieb
 public/
   widget.js         Einbettungs-Skript für Restaurant-Websites
   embed.html/.js    Buchungsoberfläche (läuft im iframe)
   admin.html        Verwaltungsoberfläche
   demo.html         Beispiel-Restaurant-Website
 test/               node:test-Tests
+vercel.json         Vercel-Konfiguration
 ```
+
+Die Tests laufen standardmäßig gegen PGlite. Mit `TEST_DATABASE_URL=postgres://… npm test`
+laufen sie gegen einen echten PostgreSQL-Server (dessen Schema `public` wird dabei geleert).
 
 ## Nächste Schritte für den Produktivbetrieb
 
@@ -151,6 +148,6 @@ test/               node:test-Tests
    je Gruppengröße.
 6. **DSGVO**: Datenschutzhinweis im Widget, Auftragsverarbeitungsvertrag mit den Restaurants,
    automatische Löschung alter Gästedaten.
-7. **Betrieb**: HTTPS, Backups der SQLite-Datei. Bei mehreren Server-Instanzen: PostgreSQL
-   und ein gemeinsames Rate-Limit (z. B. Redis).
+7. **Betrieb**: regelmäßige Backups der Datenbank, Überwachung, Schema-Migrationen für
+   künftige Änderungen an den Tabellen.
 8. Optional: Anzahlung bzw. Kreditkartengarantie gegen No-Shows, Warteliste, Google-Reservierung.

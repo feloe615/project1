@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
-import { ACTIVE_STATUSES, hashKey, newToken, transaction } from './db.js';
+import { ACTIVE_STATUSES, hashKey, newToken } from './db.js';
 import { computeSlots, findTable } from './availability.js';
 import { isValidDate, isValidTime, nowInTimeZone, toHHMM, toMin } from './time.js';
 
@@ -25,6 +25,15 @@ function send(res, status, body, headers = {}) {
 }
 
 async function readJson(req, limit = 10_000) {
+  // Auf Vercel ist der Body bereits eingelesen und liegt (ggf. schon geparst) in req.body.
+  let preParsed;
+  try { preParsed = req.body; } catch { throw new HttpError(400, 'Ungültiges JSON'); }
+  if (preParsed !== undefined) {
+    if (Buffer.isBuffer(preParsed) || typeof preParsed === 'string') {
+      try { return JSON.parse(preParsed.toString() || '{}'); } catch { throw new HttpError(400, 'Ungültiges JSON'); }
+    }
+    return preParsed ?? {};
+  }
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
@@ -37,18 +46,6 @@ async function readJson(req, limit = 10_000) {
 }
 
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-
-/** Einfaches In-Memory-Rate-Limit pro IP (für eine einzelne Instanz ausreichend). */
-function rateLimiter({ max, windowMs }) {
-  const hits = new Map();
-  return (key) => {
-    const now = Date.now();
-    const list = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
-    list.push(now);
-    hits.set(key, list);
-    return list.length <= max;
-  };
-}
 
 /**
  * IP des Gastes. Hinter einem Reverse-Proxy (Hosting-Plattform) ist die Socket-Adresse die des
@@ -69,41 +66,47 @@ export function createApp(db, {
   bookingRateLimit = { max: 10, windowMs: 10 * 60_000 },
   trustProxyHops = 0,
 } = {}) {
-  const allowBooking = rateLimiter(bookingRateLimit);
+  const ACTIVE = ACTIVE_STATUSES.map((x) => `'${x}'`).join(',');
+  const one = async (c, sql, params) => (await c.query(sql, params))[0];
 
-  const q = {
-    restaurant: db.prepare('SELECT * FROM restaurants WHERE slug = ?'),
-    hours: db.prepare('SELECT * FROM opening_hours WHERE restaurant_id = ?'),
-    tables: db.prepare('SELECT * FROM tables WHERE restaurant_id = ?'),
-    closure: db.prepare('SELECT reason FROM closures WHERE restaurant_id = ? AND date = ?'),
-    activeRes: db.prepare(`SELECT table_id, start_min, end_min FROM reservations
-      WHERE restaurant_id = ? AND date = ? AND status IN (${ACTIVE_STATUSES.map(() => '?').join(',')})`),
-    insertRes: db.prepare(`INSERT INTO reservations (restaurant_id, table_id, date, start_min, end_min,
-      party_size, guest_name, guest_email, guest_phone, notes, token) VALUES (?,?,?,?,?,?,?,?,?,?,?)`),
-    byToken: db.prepare(`SELECT r.*, x.name AS restaurant_name, x.slug AS restaurant_slug, x.timezone,
-      x.min_notice_min FROM reservations r JOIN restaurants x ON x.id = r.restaurant_id WHERE r.token = ?`),
-    setStatus: db.prepare('UPDATE reservations SET status = ? WHERE id = ? AND restaurant_id = ?'),
-    dayList: db.prepare(`SELECT r.id, r.date, r.start_min, r.end_min, r.party_size, r.guest_name,
-      r.guest_email, r.guest_phone, r.notes, r.status, r.created_at, t.name AS table_name
-      FROM reservations r JOIN tables t ON t.id = r.table_id
-      WHERE r.restaurant_id = ? AND r.date = ? ORDER BY r.start_min, r.id`),
-    addClosure: db.prepare('INSERT OR REPLACE INTO closures (restaurant_id, date, reason) VALUES (?, ?, ?)'),
-    delClosure: db.prepare('DELETE FROM closures WHERE restaurant_id = ? AND date = ?'),
-    listClosures: db.prepare('SELECT date, reason FROM closures WHERE restaurant_id = ? AND date >= ? ORDER BY date'),
+  /**
+   * Rate-Limit pro IP über die Datenbank, damit es auch bei mehreren Server-Instanzen greift.
+   * Gespeichert wird nur ein Hash der IP, und nur für die Dauer des Zeitfensters.
+   */
+  const allowBooking = async (ip) => {
+    const ipHash = hashKey(String(ip));
+    const secs = bookingRateLimit.windowMs / 1000;
+    await db.query('DELETE FROM booking_attempts WHERE at < now() - make_interval(secs => $1)', [secs]);
+    await db.query('INSERT INTO booking_attempts (ip_hash) VALUES ($1)', [ipHash]);
+    const { n } = await one(db, 'SELECT count(*)::int AS n FROM booking_attempts WHERE ip_hash = $1', [ipHash]);
+    return n <= bookingRateLimit.max;
   };
 
-  const getRestaurant = (slug) => {
-    const r = q.restaurant.get(slug);
+  const getRestaurant = async (slug, c = db) => {
+    const r = await one(c, 'SELECT * FROM restaurants WHERE slug = $1', [slug]);
     if (!r) throw new HttpError(404, 'Restaurant nicht gefunden');
     return r;
   };
 
-  const slotsFor = (r, date, partySize) => computeSlots({
+  const getTables = (c, r) => c.query('SELECT * FROM tables WHERE restaurant_id = $1', [r.id]);
+  const getActive = (c, r, date) => c.query(
+    `SELECT table_id, start_min, end_min FROM reservations
+     WHERE restaurant_id = $1 AND date = $2 AND status IN (${ACTIVE})`, [r.id, date]);
+  const getClosure = (c, r, date) =>
+    one(c, 'SELECT reason FROM closures WHERE restaurant_id = $1 AND date = $2', [r.id, date]);
+  const byToken = (token) => one(db,
+    `SELECT r.*, x.name AS restaurant_name, x.slug AS restaurant_slug, x.timezone
+     FROM reservations r JOIN restaurants x ON x.id = r.restaurant_id WHERE r.token = $1`, [token]);
+  const setStatus = async (status, id, restaurantId) => (await db.query(
+    'UPDATE reservations SET status = $1 WHERE id = $2 AND restaurant_id = $3 RETURNING id',
+    [status, id, restaurantId])).length > 0;
+
+  const slotsFor = async (c, r, date, partySize) => computeSlots({
     restaurant: r,
-    hours: q.hours.all(r.id),
-    tables: q.tables.all(r.id),
-    reservations: q.activeRes.all(r.id, date, ...ACTIVE_STATUSES),
-    closed: !!q.closure.get(r.id, date),
+    hours: await c.query('SELECT * FROM opening_hours WHERE restaurant_id = $1', [r.id]),
+    tables: await getTables(c, r),
+    reservations: await getActive(c, r, date),
+    closed: !!(await getClosure(c, r, date)),
     date,
     partySize,
     now: nowInTimeZone(r.timezone, now()),
@@ -139,10 +142,10 @@ export function createApp(db, {
   // --- Routen -----------------------------------------------------------------
   const routes = [
     // Für die Zustandsprüfung der Hosting-Plattform.
-    ['GET', /^\/healthz$/, () => { db.prepare('SELECT 1').get(); return { ok: true }; }],
+    ['GET', /^\/healthz$/, async () => { await db.query('SELECT 1'); return { ok: true }; }],
 
-    ['GET', /^\/api\/restaurants\/([\w-]+)$/, ({ params: [slug] }) => {
-      const r = getRestaurant(slug);
+    ['GET', /^\/api\/restaurants\/([\w-]+)$/, async ({ params: [slug] }) => {
+      const r = await getRestaurant(slug);
       const today = nowInTimeZone(r.timezone, now()).date;
       return {
         name: r.name, slug: r.slug, timezone: r.timezone, maxPartySize: r.max_party_size,
@@ -150,24 +153,26 @@ export function createApp(db, {
       };
     }],
 
-    ['GET', /^\/api\/restaurants\/([\w-]+)\/availability$/, ({ params: [slug], url }) => {
-      const r = getRestaurant(slug);
+    ['GET', /^\/api\/restaurants\/([\w-]+)\/availability$/, async ({ params: [slug], url }) => {
+      const r = await getRestaurant(slug);
       const date = url.searchParams.get('date');
       if (!isValidDate(date)) throw new HttpError(400, 'Ungültiges Datum (erwartet JJJJ-MM-TT)');
       const partySize = parseParty(url.searchParams.get('partySize') ?? '2', r);
-      return { date, partySize, slots: slotsFor(r, date, partySize) };
+      return { date, partySize, slots: await slotsFor(db, r, date, partySize) };
     }],
 
     ['POST', /^\/api\/restaurants\/([\w-]+)\/reservations$/, async ({ params: [slug], req }) => {
-      const r = getRestaurant(slug);
-      if (!allowBooking(clientIp(req, trustProxyHops))) throw new HttpError(429, 'Zu viele Anfragen, bitte später erneut versuchen');
+      const info = await getRestaurant(slug);
+      if (!(await allowBooking(clientIp(req, trustProxyHops)))) {
+        throw new HttpError(429, 'Zu viele Anfragen, bitte später erneut versuchen');
+      }
       const body = await readJson(req);
       if (body.website) throw new HttpError(400, 'Ungültige Anfrage'); // Honeypot-Feld gegen Bots
 
       const { date, time } = body;
       if (!isValidDate(date)) throw new HttpError(400, 'Ungültiges Datum');
       if (!isValidTime(time)) throw new HttpError(400, 'Ungültige Uhrzeit');
-      const partySize = parseParty(body.partySize, r);
+      const partySize = parseParty(body.partySize, info);
       const name = str(body.name, 100);
       const email = str(body.email, 200);
       const phone = str(body.phone, 40);
@@ -175,83 +180,92 @@ export function createApp(db, {
       if (name.length < 2) throw new HttpError(400, 'Bitte einen Namen angeben');
       if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Bitte eine gültige E-Mail-Adresse angeben');
 
-      const reservation = transaction(db, () => {
-        // Innerhalb der Transaktion erneut prüfen, damit zwei gleichzeitige Anfragen
-        // nicht denselben Tisch bekommen.
-        const slot = slotsFor(r, date, partySize).find((s) => s.time === time);
+      const reservation = await db.tx(async (t) => {
+        // Zeilensperre auf dem Restaurant: Gleichzeitige Buchungen desselben Restaurants laufen
+        // nacheinander. So können zwei Anfragen nicht denselben Tisch bekommen.
+        const r = await one(t, 'SELECT * FROM restaurants WHERE id = $1 FOR UPDATE', [info.id]);
+        const slot = (await slotsFor(t, r, date, partySize)).find((s) => s.time === time);
         if (!slot) throw new HttpError(400, 'Zu dieser Zeit ist keine Buchung möglich');
         const start = toMin(time);
         const end = start + r.duration_min;
-        const table = findTable(q.tables.all(r.id), q.activeRes.all(r.id, date, ...ACTIVE_STATUSES), partySize, start, end);
+        const table = findTable(await getTables(t, r), await getActive(t, r, date), partySize, start, end);
         if (!table) throw new HttpError(409, 'Dieser Termin ist leider gerade vergeben worden');
         const token = newToken();
-        q.insertRes.run(r.id, table.id, date, start, end, partySize, name, email, phone || null, notes || null, token);
+        await t.query(`INSERT INTO reservations (restaurant_id, table_id, date, start_min, end_min,
+          party_size, guest_name, guest_email, guest_phone, notes, token)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [r.id, table.id, date, start, end, partySize, name, email, phone || null, notes || null, token]);
         return { token, date, time, partySize, name, restaurant: { name: r.name, slug: r.slug }, status: 'confirmed' };
       });
       // Hier wäre der Ort für eine Bestätigungs-E-Mail (siehe README).
       return [201, reservation];
     }],
 
-    ['GET', /^\/api\/reservations\/([\w-]+)$/, ({ params: [token] }) => {
-      const row = q.byToken.get(token);
+    ['GET', /^\/api\/reservations\/([\w-]+)$/, async ({ params: [token] }) => {
+      const row = await byToken(token);
       if (!row) throw new HttpError(404, 'Reservierung nicht gefunden');
       return publicReservation(row);
     }],
 
-    ['DELETE', /^\/api\/reservations\/([\w-]+)$/, ({ params: [token] }) => {
-      const row = q.byToken.get(token);
+    ['DELETE', /^\/api\/reservations\/([\w-]+)$/, async ({ params: [token] }) => {
+      const row = await byToken(token);
       if (!row) throw new HttpError(404, 'Reservierung nicht gefunden');
       if (row.status !== 'confirmed') throw new HttpError(409, 'Diese Reservierung kann nicht mehr storniert werden');
       const local = nowInTimeZone(row.timezone, now());
       if (row.date < local.date || (row.date === local.date && row.start_min <= local.minutes)) {
         throw new HttpError(409, 'Vergangene Reservierungen können nicht storniert werden');
       }
-      q.setStatus.run('cancelled', row.id, row.restaurant_id);
+      await setStatus('cancelled', row.id, row.restaurant_id);
       return publicReservation({ ...row, status: 'cancelled' });
     }],
 
     // --- Verwaltung (Authorization: Bearer <Admin-Schlüssel>) ---------------------
-    ['GET', /^\/api\/admin\/([\w-]+)\/reservations$/, ({ params: [slug], req, url }) => {
-      const r = getRestaurant(slug);
+    ['GET', /^\/api\/admin\/([\w-]+)\/reservations$/, async ({ params: [slug], req, url }) => {
+      const r = await getRestaurant(slug);
       requireAdmin(req, r);
       const date = url.searchParams.get('date') ?? nowInTimeZone(r.timezone, now()).date;
       if (!isValidDate(date)) throw new HttpError(400, 'Ungültiges Datum');
-      const reservations = q.dayList.all(r.id, date).map(({ start_min, end_min, ...x }) => ({
+      const rows = await db.query(`SELECT r.id, r.date, r.start_min, r.end_min, r.party_size, r.guest_name,
+        r.guest_email, r.guest_phone, r.notes, r.status, r.created_at, t.name AS table_name
+        FROM reservations r JOIN tables t ON t.id = r.table_id
+        WHERE r.restaurant_id = $1 AND r.date = $2 ORDER BY r.start_min, r.id`, [r.id, date]);
+      const reservations = rows.map(({ start_min, end_min, ...x }) => ({
         ...x, time: toHHMM(start_min), until: toHHMM(end_min % 1440),
       }));
-      const closure = q.closure.get(r.id, date);
+      const closure = await getClosure(db, r, date);
       return { restaurant: r.name, date, closed: closure ? (closure.reason ?? true) : false, reservations };
     }],
 
     ['PATCH', /^\/api\/admin\/([\w-]+)\/reservations\/(\d+)$/, async ({ params: [slug, id], req }) => {
-      const r = getRestaurant(slug);
+      const r = await getRestaurant(slug);
       requireAdmin(req, r);
       const { status } = await readJson(req);
       if (!STAFF_STATUSES.includes(status)) throw new HttpError(400, 'Ungültiger Status');
-      const { changes } = q.setStatus.run(status, Number(id), r.id);
-      if (!changes) throw new HttpError(404, 'Reservierung nicht gefunden');
+      if (!(await setStatus(status, Number(id), r.id))) throw new HttpError(404, 'Reservierung nicht gefunden');
       return { id: Number(id), status };
     }],
 
-    ['GET', /^\/api\/admin\/([\w-]+)\/closures$/, ({ params: [slug], req }) => {
-      const r = getRestaurant(slug);
+    ['GET', /^\/api\/admin\/([\w-]+)\/closures$/, async ({ params: [slug], req }) => {
+      const r = await getRestaurant(slug);
       requireAdmin(req, r);
-      return q.listClosures.all(r.id, nowInTimeZone(r.timezone, now()).date);
+      return db.query('SELECT date, reason FROM closures WHERE restaurant_id = $1 AND date >= $2 ORDER BY date',
+        [r.id, nowInTimeZone(r.timezone, now()).date]);
     }],
 
     ['PUT', /^\/api\/admin\/([\w-]+)\/closures\/(\d{4}-\d{2}-\d{2})$/, async ({ params: [slug, date], req }) => {
-      const r = getRestaurant(slug);
+      const r = await getRestaurant(slug);
       requireAdmin(req, r);
       if (!isValidDate(date)) throw new HttpError(400, 'Ungültiges Datum');
-      const { reason } = await readJson(req);
-      q.addClosure.run(r.id, date, str(reason, 200) || null);
-      return { date, reason: str(reason, 200) || null };
+      const reason = str((await readJson(req)).reason, 200) || null;
+      await db.query(`INSERT INTO closures (restaurant_id, date, reason) VALUES ($1, $2, $3)
+        ON CONFLICT (restaurant_id, date) DO UPDATE SET reason = EXCLUDED.reason`, [r.id, date, reason]);
+      return { date, reason };
     }],
 
-    ['DELETE', /^\/api\/admin\/([\w-]+)\/closures\/(\d{4}-\d{2}-\d{2})$/, ({ params: [slug, date], req }) => {
-      const r = getRestaurant(slug);
+    ['DELETE', /^\/api\/admin\/([\w-]+)\/closures\/(\d{4}-\d{2}-\d{2})$/, async ({ params: [slug, date], req }) => {
+      const r = await getRestaurant(slug);
       requireAdmin(req, r);
-      q.delClosure.run(r.id, date);
+      await db.query('DELETE FROM closures WHERE restaurant_id = $1 AND date = $2', [r.id, date]);
       return [204, undefined];
     }],
   ];

@@ -8,16 +8,31 @@ import { clientIp, createHttpServer } from '../src/server.js';
 const NOW = new Date('2026-11-10T09:00:00Z');
 const SLUG = 'trattoria-demo';
 const KEY = 'test-admin-key';
-let server, base;
+let db, server, base;
+
+const listen = async (srv) => {
+  await new Promise((r) => srv.listen(0, r));
+  return `http://127.0.0.1:${srv.address().port}`;
+};
 
 before(async () => {
-  const db = openDb(':memory:');
-  seedDemo(db, KEY);
+  // Standard: eingebettetes PGlite. Mit TEST_DATABASE_URL läuft die Suite gegen einen echten
+  // PostgreSQL-Server (Achtung: dessen Schema "public" wird dabei geleert).
+  const url = process.env.TEST_DATABASE_URL;
+  if (url) {
+    const tmp = await openDb(url);
+    await tmp.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+    await tmp.close();
+  }
+  db = await openDb(url ?? 'memory://');
+  await seedDemo(db, KEY);
   server = createHttpServer(db, { now: () => NOW, bookingRateLimit: { max: 1000, windowMs: 60_000 } });
-  await new Promise((r) => server.listen(0, r));
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = await listen(server);
 });
-after(() => server.close());
+after(async () => {
+  server.close();
+  await db.close();
+});
 
 const call = async (method, path, body, headers = {}) => {
   const res = await fetch(base + path, {
@@ -137,4 +152,27 @@ test('Client-IP hinter Reverse-Proxy', () => {
   assert.equal(clientIp(req('1.1.1.1, 2.2.2.2'), 2), '1.1.1.1');
   assert.equal(clientIp(req(), 1), '10.0.0.1');
   assert.equal(clientIp(req('2.2.2.2'), 3), '10.0.0.1');
+});
+
+test('gleichzeitige Buchungen: nie mehr Reservierungen als Tische', async () => {
+  // Für 7 Personen passt nur Tisch T8. Zehn parallele Anfragen → genau eine gewinnt.
+  const results = await Promise.all(
+    Array.from({ length: 10 }, () => book({ date: '2026-11-12', time: '19:00', partySize: 7 })));
+  const codes = results.map((r) => r.status).sort();
+  assert.deepEqual(codes, [201, ...Array(9).fill(409)]);
+});
+
+test('Rate-Limit pro IP (über die Datenbank)', async () => {
+  const limited = createHttpServer(db, { now: () => NOW, trustProxyHops: 1, bookingRateLimit: { max: 2, windowMs: 60_000 } });
+  const url = await listen(limited);
+  const attempt = (ip) => fetch(`${url}/api/restaurants/${SLUG}/reservations`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip },
+    body: JSON.stringify({ date: '2026-11-14', time: '12:00', partySize: 2, name: 'Limit Test', email: 'l@example.com' }),
+  }).then((r) => r.status);
+  try {
+    assert.deepEqual([await attempt('203.0.113.9'), await attempt('203.0.113.9'), await attempt('203.0.113.9')], [201, 201, 429]);
+    assert.equal(await attempt('203.0.113.10'), 201); // andere IP ist nicht betroffen
+  } finally {
+    limited.close();
+  }
 });
