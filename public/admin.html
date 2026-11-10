@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reservierungen verwalten</title>
+<style>
+  :root { --accent: #b4441e; --line: #e4dfd6; --muted: #6b665e; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; color: #1f1d1a; background: #f7f4ef; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 16px; }
+  label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  input, button, select { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; color: var(--muted); }
+  .stats b { color: #1f1d1a; }
+  .tablewrap { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  tr.cancelled td, tr.no_show td { color: #a39d93; }
+  .notes { color: var(--muted); font-size: 13px; }
+  .err { color: #a3261b; background: #fbeceb; padding: 8px 10px; border-radius: 8px; }
+  .closed { background: #fff4d6; padding: 8px 10px; border-radius: 8px; margin-bottom: 12px; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Reservierungen verwalten</h1>
+  <form class="bar" id="login">
+    <label>Restaurant-Kürzel <input name="slug" required value="trattoria-demo"></label>
+    <label>Admin-Schlüssel <input name="key" type="password" required autocomplete="current-password"></label>
+    <button class="primary">Anmelden</button>
+  </form>
+  <div id="main" hidden>
+    <div class="bar">
+      <button type="button" id="prev" aria-label="Vorheriger Tag">←</button>
+      <label>Datum <input type="date" id="date"></label>
+      <button type="button" id="next" aria-label="Nächster Tag">→</button>
+      <button type="button" id="today">Heute</button>
+      <button type="button" id="reload">Aktualisieren</button>
+      <button type="button" id="closeDay">Tag sperren / freigeben</button>
+      <button type="button" id="logout">Abmelden</button>
+    </div>
+    <div id="out"></div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var STATUS = { confirmed: 'Bestätigt', seated: 'Platziert', completed: 'Abgeschlossen', cancelled: 'Storniert', no_show: 'Nicht erschienen' };
+  var auth = null;
+  try { auth = JSON.parse(sessionStorage.getItem('tb-admin') || 'null'); } catch (e) {}
+  var $ = function (id) { return document.getElementById(id); };
+  var dateInput = $('date');
+  var current = null;
+
+  function api(method, path, body) {
+    return fetch('/api/admin/' + encodeURIComponent(auth.slug) + path, {
+      method: method,
+      headers: Object.assign({ Authorization: 'Bearer ' + auth.key }, body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(function (res) {
+      if (res.status === 204) return null;
+      return res.json().then(function (d) { if (!res.ok) throw Object.assign(new Error(d.error), { status: res.status }); return d; });
+    });
+  }
+
+  function el(tag, text, cls) { var e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
+
+  function shift(n) {
+    var d = new Date(dateInput.value + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+    dateInput.value = d.toISOString().slice(0, 10); load();
+  }
+
+  function load() {
+    var out = $('out');
+    api('GET', '/reservations?date=' + encodeURIComponent(dateInput.value)).then(function (data) {
+      current = data;
+      out.replaceChildren();
+      if (data.closed) out.appendChild(el('div', 'Dieser Tag ist für Online-Buchungen gesperrt' + (typeof data.closed === 'string' ? ': ' + data.closed : '') + '.', 'closed'));
+      var active = data.reservations.filter(function (r) { return r.status === 'confirmed' || r.status === 'seated' || r.status === 'completed'; });
+      var stats = el('div', null, 'stats');
+      [['Reservierungen', active.length], ['Gäste', active.reduce(function (s, r) { return s + r.party_size; }, 0)],
+       ['Storniert', data.reservations.filter(function (r) { return r.status === 'cancelled'; }).length]]
+        .forEach(function (p) { var s = el('span', p[0] + ': '); s.appendChild(el('b', String(p[1]))); stats.appendChild(s); });
+      out.appendChild(stats);
+
+      var wrap = el('div', null, 'tablewrap');
+      if (!data.reservations.length) { wrap.appendChild(el('div', 'Keine Reservierungen an diesem Tag.', 'empty')); out.appendChild(wrap); return; }
+      var t = el('table'); var head = el('tr');
+      ['Zeit', 'Tisch', 'Pers.', 'Gast', 'Kontakt', 'Status'].forEach(function (h) { head.appendChild(el('th', h)); });
+      t.appendChild(el('thead')).appendChild(head);
+      var tb = t.appendChild(el('tbody'));
+      data.reservations.forEach(function (r) {
+        var tr = el('tr', null, r.status);
+        tr.appendChild(el('td', r.time + '–' + r.until));
+        tr.appendChild(el('td', r.table_name));
+        tr.appendChild(el('td', String(r.party_size)));
+        var g = el('td'); g.appendChild(el('div', r.guest_name)); if (r.notes) g.appendChild(el('div', r.notes, 'notes')); tr.appendChild(g);
+        var c = el('td'); c.appendChild(el('div', r.guest_email)); if (r.guest_phone) c.appendChild(el('div', r.guest_phone, 'notes')); tr.appendChild(c);
+        var sel = document.createElement('select');
+        sel.setAttribute('aria-label', 'Status für ' + r.guest_name);
+        Object.keys(STATUS).forEach(function (k) { var o = el('option', STATUS[k]); o.value = k; o.selected = k === r.status; sel.appendChild(o); });
+        sel.onchange = function () { api('PATCH', '/reservations/' + r.id, { status: sel.value }).then(load, function (e) { alert(e.message); load(); }); };
+        var st = el('td'); st.appendChild(sel); tr.appendChild(st);
+        tb.appendChild(tr);
+      });
+      wrap.appendChild(t); out.appendChild(wrap);
+    }).catch(function (e) {
+      if (e.status === 401) { logout(); alert('Anmeldung fehlgeschlagen – Schlüssel prüfen.'); return; }
+      out.replaceChildren(el('p', e.message, 'err'));
+    });
+  }
+
+  function start() {
+    $('login').hidden = true; $('main').hidden = false;
+    if (!dateInput.value) dateInput.value = new Date().toLocaleDateString('sv-SE');
+    load();
+  }
+  function logout() {
+    auth = null; try { sessionStorage.removeItem('tb-admin'); } catch (e) {}
+    $('login').hidden = false; $('main').hidden = true;
+  }
+
+  $('login').onsubmit = function (e) {
+    e.preventDefault();
+    auth = { slug: this.slug.value.trim(), key: this.key.value };
+    try { sessionStorage.setItem('tb-admin', JSON.stringify(auth)); } catch (err) {}
+    start();
+  };
+  dateInput.onchange = load;
+  $('prev').onclick = function () { shift(-1); };
+  $('next').onclick = function () { shift(1); };
+  $('today').onclick = function () { dateInput.value = new Date().toLocaleDateString('sv-SE'); load(); };
+  $('reload').onclick = load;
+  $('logout').onclick = logout;
+  $('closeDay').onclick = function () {
+    var d = dateInput.value;
+    if (current && current.closed) {
+      if (confirm('Sperre für ' + d + ' aufheben?')) api('DELETE', '/closures/' + d).then(load);
+    } else {
+      var reason = prompt('Tag ' + d + ' für Online-Buchungen sperren. Grund (optional):');
+      if (reason !== null) api('PUT', '/closures/' + d, { reason: reason }).then(load);
+    }
+  };
+  if (auth) start();
+})();
+</script>
+</body>
+</html>
