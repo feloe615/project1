@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trattoria Demo – Beispiel-Website</title>
+<style>
+  body { margin: 0; font: 16px/1.6 Georgia, serif; color: #2a2520; background: #fbf8f3; }
+  header { background: #2a2520; color: #fbf8f3; padding: 48px 16px; text-align: center; }
+  header h1 { margin: 0; font-size: 40px; letter-spacing: .02em; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px; display: grid; gap: 32px; grid-template-columns: 1fr; }
+  main > section { min-width: 0; }
+  @media (min-width: 800px) { main { grid-template-columns: 1fr 1fr; } }
+  code { background: #efe9df; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+  pre { background: #efe9df; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trattoria Demo</h1>
+  <p>Fiktives Restaurant zur Vorführung des Reservierungs-Widgets</p>
+</header>
+<main>
+  <section>
+    <h2>Willkommen</h2>
+    <p>Dies ist eine Beispiel-Website eines Restaurants. Rechts sehen Sie das eingebettete
+      Reservierungs-Widget, so wie es auf jeder beliebigen Restaurant-Website erscheint.</p>
+    <p><strong>Öffnungszeiten:</strong><br>Di–So 12:00–15:30 und 17:30–23:00<br>Montag Ruhetag</p>
+    <h3>So wird das Widget eingebunden</h3>
+<pre>&lt;div id="reservierung"&gt;&lt;/div&gt;
+&lt;script src="https://IHR-SERVER/widget.js"
+        data-restaurant="trattoria-demo"
+        data-target="#reservierung"
+        data-color="#b4441e" async&gt;&lt;/script&gt;</pre>
+  </section>
+  <section>
+    <h2>Tisch reservieren</h2>
+    <div id="reservierung"></div>
+  </section>
+</main>
+<script src="/widget.js" data-restaurant="trattoria-demo" data-target="#reservierung" data-color="#b4441e" async></script>
+</body>
+</html>

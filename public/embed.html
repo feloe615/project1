@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tischreservierung</title>
+<style>
+  :root { --accent: #b4441e; --fg: #1f1d1a; --muted: #6b665e; --line: #e4dfd6; --bg: #fff; --soft: #f7f4ef; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; }
+  body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); }
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .row { display: flex; gap: 10px; }
+  .row > label { flex: 1; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  input, select, textarea { display: block; width: 100%; margin-top: 4px; padding: 9px 10px; font: inherit;
+    color: var(--fg); background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { resize: vertical; min-height: 60px; }
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; margin: 4px 0 8px; }
+  .slot { padding: 8px 0; border: 1px solid var(--accent); color: var(--accent); background: #fff;
+    border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  .slot:hover { background: var(--soft); }
+  .slot[disabled] { border-color: var(--line); color: #b9b3a9; text-decoration: line-through; cursor: not-allowed; background: #fff; }
+  .primary { width: 100%; padding: 11px; border: 0; border-radius: 8px; background: var(--accent); color: #fff;
+    font: inherit; font-weight: 600; cursor: pointer; }
+  .primary[disabled] { opacity: .6; cursor: wait; }
+  .link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
+  .summary { background: var(--soft); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; display: flex;
+    justify-content: space-between; align-items: center; gap: 8px; }
+  .msg { color: var(--muted); font-size: 14px; margin: 8px 0; }
+  .err { color: #a3261b; background: #fbeceb; border-radius: 8px; padding: 8px 10px; font-size: 14px; margin: 0 0 12px; }
+  .ok { font-size: 32px; line-height: 1; margin-bottom: 8px; color: #2f7a3e; }
+  .hp { position: absolute; left: -9999px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 16px; }
+  dt { color: var(--muted); } dd { margin: 0; font-weight: 600; }
+  .foot { font-size: 12px; color: var(--muted); margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="card" id="app"><p class="msg">Lädt …</p></div>
+<script src="embed.js"></script>
+</body>
+</html>
