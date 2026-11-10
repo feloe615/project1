@@ -217,6 +217,11 @@
     api('GET', '/api/restaurants/' + encodeURIComponent(slug)).then(function (r) {
       state.restaurant = r;
       state.date = r.today;
+      // Vorauswahl aus der Restaurant-Suche: direkt zu den Kontaktdaten springen.
+      var date = params.get('date'), time = params.get('time'), size = Number(params.get('partySize'));
+      if (size >= 1 && size <= r.maxPartySize) state.partySize = size;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date || '')) state.date = date;
+      if (/^\d{2}:\d{2}$/.test(time || '') && state.date === date) { state.time = time; showDetails(); return; }
       showSearch();
     }).catch(function (e) { render(errorBox(e.message)); });
   } else render(errorBox('Kein Restaurant angegeben.'));
