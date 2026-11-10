@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ResellHub</title>
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="icon.svg" alt="" width="28" height="28"> ResellHub</div>
+    <nav class="tabs" id="tabs">
+      <button data-view="dashboard" class="active">Dashboard</button>
+      <button data-view="inventory">Inventar</button>
+      <button data-view="sales">Verkäufe</button>
+      <button data-view="expenses">Ausgaben</button>
+      <button data-view="settings">Einstellungen</button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- DASHBOARD -->
+    <section id="view-dashboard" class="view active">
+      <div class="toolbar">
+        <h1>Übersicht</h1>
+        <select id="dash-period">
+          <option value="month">Dieser Monat</option>
+          <option value="30">Letzte 30 Tage</option>
+          <option value="90">Letzte 90 Tage</option>
+          <option value="year">Dieses Jahr</option>
+          <option value="all">Gesamt</option>
+        </select>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="card" id="goal-card"></div>
+      <div class="grid2">
+        <div class="card">
+          <h2>Gewinn pro Monat <small>(letzte 12 Monate)</small></h2>
+          <div id="chart-monthly" class="chart"></div>
+        </div>
+        <div class="card">
+          <h2>Plattformen</h2>
+          <div id="platform-table"></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>Top-Kategorien nach Gewinn</h2>
+          <div id="category-table"></div>
+        </div>
+        <div class="card">
+          <h2>Ladenhüter <small id="aging-hint"></small></h2>
+          <div id="aging-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INVENTORY -->
+    <section id="view-inventory" class="view">
+      <div class="toolbar">
+        <h1>Inventar</h1>
+        <div class="toolbar-actions">
+          <input type="search" id="inv-search" placeholder="Suchen (Titel, SKU, Marke …)">
+          <select id="inv-status">
+            <option value="open">Alle offenen</option>
+            <option value="lager">Im Lager</option>
+            <option value="gelistet">Gelistet</option>
+            <option value="reserviert">Reserviert</option>
+            <option value="verkauft">Verkauft</option>
+            <option value="all">Alle</option>
+          </select>
+          <select id="inv-category"><option value="">Alle Kategorien</option></select>
+          <button class="primary" id="btn-add-item">+ Artikel</button>
+        </div>
+      </div>
+      <div class="summary" id="inv-summary"></div>
+      <div class="table-wrap"><table class="table" id="inv-table"></table></div>
+    </section>
+
+    <!-- SALES -->
+    <section id="view-sales" class="view">
+      <div class="toolbar">
+        <h1>Verkäufe</h1>
+        <div class="toolbar-actions">
+          <input type="search" id="sales-search" placeholder="Suchen …">
+          <select id="sales-platform"><option value="">Alle Plattformen</option></select>
+          <input type="month" id="sales-month" title="Monat filtern">
+          <button id="btn-export-sales">CSV exportieren</button>
+        </div>
+      </div>
+      <div class="summary" id="sales-summary"></div>
+      <div class="table-wrap"><table class="table" id="sales-table"></table></div>
+    </section>
+
+    <!-- EXPENSES -->
+    <section id="view-expenses" class="view">
+      <div class="toolbar">
+        <h1>Ausgaben</h1>
+        <div class="toolbar-actions">
+          <input type="month" id="exp-month" title="Monat filtern">
+          <button class="primary" id="btn-add-expense">+ Ausgabe</button>
+        </div>
+      </div>
+      <p class="hint">Betriebskosten, die keinem Artikel zugeordnet sind – z.&nbsp;B. Versandmaterial, Abos, Fahrtkosten, Werbung.</p>
+      <div class="summary" id="exp-summary"></div>
+      <div class="table-wrap"><table class="table" id="exp-table"></table></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view">
+      <div class="toolbar"><h1>Einstellungen</h1></div>
+      <div class="grid2">
+        <div class="card">
+          <h2>Ziele &amp; Regeln</h2>
+          <form id="settings-form" class="form">
+            <label>Monatliches Gewinnziel (€)<input type="number" step="1" min="0" name="monthlyGoal"></label>
+            <label>Ladenhüter ab (Tagen im Bestand)<input type="number" step="1" min="1" name="agingDays"></label>
+            <label>Ziel-ROI für Preisvorschlag (%)<input type="number" step="1" min="0" name="targetRoi"></label>
+            <button class="primary" type="submit">Speichern</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Plattformen &amp; Gebühren</h2>
+          <p class="hint">Gebühren werden beim Verkauf automatisch vorgeschlagen: Prozent vom Verkaufspreis + Fixbetrag.</p>
+          <div id="platform-settings"></div>
+          <button id="btn-add-platform">+ Plattform</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Daten</h2>
+        <p class="hint">Alle Daten werden nur lokal in diesem Browser gespeichert. Erstelle regelmäßig ein Backup!</p>
+        <div class="btn-row">
+          <button id="btn-backup">Backup herunterladen (JSON)</button>
+          <label class="btn">Backup wiederherstellen<input type="file" id="file-restore" accept="application/json" hidden></label>
+          <button id="btn-export-inventory">Inventar als CSV</button>
+          <label class="btn">Artikel aus CSV importieren<input type="file" id="file-import-csv" accept=".csv,text/csv" hidden></label>
+          <button id="btn-demo">Demodaten laden</button>
+          <button class="danger" id="btn-reset">Alles löschen</button>
+        </div>
+        <p class="hint">CSV-Import-Spalten (Kopfzeile): <code>title;sku;category;brand;size;condition;source;purchaseDate;purchasePrice;extraCosts;listPrice;location;notes</code></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODALS -->
+  <dialog id="dlg-item">
+    <form method="dialog" id="form-item" class="form">
+      <h2 id="dlg-item-title">Artikel</h2>
+      <div class="form-grid">
+        <label class="span2">Titel*<input name="title" required></label>
+        <label>SKU<input name="sku" placeholder="automatisch"></label>
+        <label>Kategorie<input name="category" list="dl-categories"></label>
+        <label>Marke<input name="brand" list="dl-brands"></label>
+        <label>Größe<input name="size"></label>
+        <label>Zustand
+          <select name="condition">
+            <option>Neu mit Etikett</option><option>Neu ohne Etikett</option><option>Sehr gut</option><option>Gut</option><option>Zufriedenstellend</option><option>Defekt</option>
+          </select>
+        </label>
+        <label>Einkaufsquelle<input name="source" list="dl-sources" placeholder="Flohmarkt, Outlet …"></label>
+        <label>Einkaufsdatum<input type="date" name="purchaseDate" required></label>
+        <label>Einkaufspreis (€)*<input type="number" step="0.01" min="0" name="purchasePrice" required></label>
+        <label>Nebenkosten (€)<input type="number" step="0.01" min="0" name="extraCosts" placeholder="Reinigung, Anfahrt …"></label>
+        <label>Angebotspreis (€)<input type="number" step="0.01" min="0" name="listPrice"><small id="price-suggestion" class="hint"></small></label>
+        <label>Lagerort<input name="location" placeholder="Box 3, Regal A …"></label>
+        <label>Status
+          <select name="status">
+            <option value="lager">Im Lager</option><option value="gelistet">Gelistet</option><option value="reserviert">Reserviert</option>
+          </select>
+        </label>
+        <fieldset class="span2"><legend>Gelistet auf</legend><div id="item-platforms" class="chips"></div></fieldset>
+        <label class="span2">Notizen<textarea name="notes" rows="2"></textarea></label>
+      </div>
+      <div class="dlg-actions">
+        <button value="cancel" formnovalidate>Abbrechen</button>
+        <button class="primary" value="save">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-sell">
+    <form method="dialog" id="form-sell" class="form">
+      <h2>Verkauf erfassen</h2>
+      <p id="sell-item-name" class="muted"></p>
+      <div class="form-grid">
+        <label>Verkaufsdatum<input type="date" name="date" required></label>
+        <label>Plattform<select name="platform" id="sell-platform"></select></label>
+        <label>Verkaufspreis (€)*<input type="number" step="0.01" min="0" name="price" required></label>
+        <label>Gebühren (€)<input type="number" step="0.01" min="0" name="fees"></label>
+        <label>Versandkosten (selbst getragen, €)<input type="number" step="0.01" min="0" name="shipping"></label>
+        <label>Käufer<input name="buyer"></label>
+      </div>
+      <div class="profit-preview" id="sell-preview"></div>
+      <div class="dlg-actions">
+        <button value="cancel" formnovalidate>Abbrechen</button>
+        <button class="primary" value="save">Als verkauft markieren</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-expense">
+    <form method="dialog" id="form-expense" class="form">
+      <h2>Ausgabe</h2>
+      <div class="form-grid">
+        <label>Datum<input type="date" name="date" required></label>
+        <label>Kategorie<input name="category" list="dl-exp-categories" required></label>
+        <label>Betrag (€)*<input type="number" step="0.01" min="0" name="amount" required></label>
+        <label>Notiz<input name="note"></label>
+      </div>
+      <div class="dlg-actions">
+        <button value="cancel" formnovalidate>Abbrechen</button>
+        <button class="primary" value="save">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="dl-categories"></datalist>
+  <datalist id="dl-brands"></datalist>
+  <datalist id="dl-sources"></datalist>
+  <datalist id="dl-exp-categories">
+    <option>Versandmaterial</option><option>Abos &amp; Tools</option><option>Fahrtkosten</option><option>Werbung</option><option>Reinigung &amp; Reparatur</option><option>Sonstiges</option>
+  </datalist>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
